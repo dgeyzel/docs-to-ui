@@ -7,6 +7,11 @@
 <main class="app-container">
     <section class="card" aria-labelledby="traces-heading">
         <h1 class="card-title" id="traces-heading">Recent traces</h1>
+        <p class="hint">
+            Traces are sent to: {{ trace_backends_label }}.
+            {% if trace_settings_url() %}<a href="{{ trace_settings_url() }}">Change in Settings</a>{% else %}Chosen in the Tuning app.{% endif %}
+            This list shows native traces only.
+        </p>
         <form class="filter-row" method="get" action="{{ url('traces:list') }}">
             <div class="form-group">
                 <label class="form-label" for="filter-generation">Generation</label>

@@ -408,6 +408,7 @@ Unchanged from v6, in both apps:
 - At startup each process attaches a processor for every backend that *could* be used. `native` is always available. `langfuse` is available when its credentials are set in the environment.
 - A **routing processor** forwards each finished span only to the currently selected backends. It reads the selection from the database, caching it for at most `TELEMETRY_SETTINGS_TTL_S` seconds (default 10), so changes apply without a restart.
 - Langfuse can't be selected while its credentials are missing. The Settings page says which variables to set.
+- `TELEMETRY_EXPORT_ENABLED` set to false attaches no backend processors at all, whatever is selected. The test suites and the image build use this, so no test exports spans unless it sets that up itself.
 - Feedback is always stored natively, and is mirrored to Langfuse when it is selected (as in v6).
 
 ### 11.3 Backends
@@ -522,6 +523,7 @@ Environment variables (secrets and per-process settings). Runtime choices live i
 | `PLAIN_TELEMETRY_SERVICE_NAME` | `docs-to-ui-docs` / `docs-to-ui-tuning` | Service name on traces |
 | `PLAIN_TELEMETRY_NATIVE_MAX_ATTRIBUTE_BYTES` | `262144` | Native attribute truncation |
 | `PLAIN_TELEMETRY_SETTINGS_TTL_S` | `10` | How long a backend selection is cached |
+| `PLAIN_TELEMETRY_EXPORT_ENABLED` | `true` | `false` attaches no backend at all, whatever is selected (test suites, image builds) |
 | `PLAIN_TRACES_RETENTION_DAYS` | `30` | Native trace retention |
 | `PLAIN_TUNING_MAX_EVAL_CONCURRENCY` | `4` | Parallel examples in an eval run |
 | `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_PROJECT_ID` | — | Needed before Langfuse can be selected |
@@ -577,7 +579,7 @@ Unchanged from v6: the repository and all tooling run in WSL on the Linux filesy
 - Tuned prompts are `PromptVersion` data, promoted from the Tuning app.
 - Runtime settings (active model, prompts, judge, trace backends) change only in the Tuning app, whose routes all live under `/tuning/`. The seeded default judge is Claude.
 - Faithfulness and component accuracy are required metrics against curated gold sets.
-- The trace backend (native and/or Langfuse) is selectable in the UI without a restart.
+- The trace backend (native and/or Langfuse) is selectable in the UI without a restart. `PLAIN_TELEMETRY_EXPORT_ENABLED` turns tracing off per process (tests, builds).
 - Removed: DSPy program artifacts in the web app, `dspy_pipeline/` as a CLI-only tool, `PLAIN_LLM_*` and `PLAIN_TELEMETRY_BACKENDS`.
 
 **v6.3**

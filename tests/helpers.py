@@ -3,7 +3,9 @@ import stat
 import zipfile
 from pathlib import Path
 
+import pytest
 from d2u.sources.bundle import SourceBundle, SourceFile
+from d2u.telemetry.backends.base import TraceBackend
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -68,3 +70,22 @@ def activate_fake_model() -> None:
     runtime = RuntimeSettings.load()
     runtime.active_model = model
     runtime.update()
+
+
+def use_trace_backends(
+    monkeypatch: pytest.MonkeyPatch,
+    backends: list[TraceBackend],
+    *,
+    selected: set[str] | None = None,
+) -> None:
+    """Attach backends as if at startup, and select them (all by default).
+
+    Tests run with TELEMETRY_EXPORT_ENABLED off, so no backend is attached
+    unless a test does it here.
+    """
+    from d2u.telemetry import config
+    from d2u.telemetry.routing import SelectionCache
+
+    names = frozenset(selected if selected is not None else [b.name for b in backends])
+    monkeypatch.setattr(config, "_available", {b.name: b for b in backends})
+    monkeypatch.setattr(config, "_selection", SelectionCache(lambda: names, ttl_s=0))

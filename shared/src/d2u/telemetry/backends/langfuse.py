@@ -1,6 +1,6 @@
 """The Langfuse backend: spans over OTLP, feedback as Langfuse scores.
 
-Imported only when "langfuse" is in TELEMETRY_BACKENDS.
+Imported only when the LANGFUSE_* variables are set.
 """
 
 import logging

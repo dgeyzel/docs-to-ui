@@ -112,6 +112,7 @@
     {% endif %}
     <p class="hint">
         {% if active_model_name %}Model: {{ active_model_name }}{% else %}No active model is set{% endif %}
+        · Traces: {{ trace_backends_label }}
         · chosen in the Tuning app
     </p>
     <div>

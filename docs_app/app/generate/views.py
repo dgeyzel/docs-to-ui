@@ -1,11 +1,12 @@
 from typing import Any
 
 from d2u.generations.models import Feedback, Generation, GenerationStatus
-from d2u.registry.lookups import active_model
+from d2u.registry.lookups import active_model, trace_backends
 from d2u.schemas.docpage import DocPage
 from d2u.sources.bundle import FileManifest
 from d2u.sources.registry import display_name
 from d2u.telemetry.api import record_feedback, trace_url
+from d2u.telemetry.config import selection_summary
 from d2u.telemetry.events import FeedbackEvent
 from d2u.traces.queries import generation_trace_totals
 from plain.http import NotFoundError404, RedirectResponse, Response
@@ -72,6 +73,7 @@ class HomeView(FormView[SourceForm]):
         )
         model = active_model()
         context["active_model_name"] = model.name if model else ""
+        context["trace_backends_label"] = selection_summary(trace_backends())
         return context
 
     def form_valid(self, form: SourceForm) -> Response:

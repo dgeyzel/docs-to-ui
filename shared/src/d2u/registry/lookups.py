@@ -28,6 +28,11 @@ def require_active_model() -> ModelConfig:
     return model
 
 
+def trace_backends() -> list[str]:
+    """The trace backend names chosen in the Tuning app."""
+    return [str(name) for name in RuntimeSettings.load().trace_backends]
+
+
 def active_prompt(*, language: str, strategy: str) -> PromptVersion | None:
     """The active prompt version for a language and strategy, if any."""
     return PromptVersion.query.get_or_none(

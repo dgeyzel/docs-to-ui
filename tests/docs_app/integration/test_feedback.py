@@ -1,11 +1,11 @@
 import pytest
 from d2u.generations.models import Feedback, Generation
-from d2u.telemetry import config as telemetry_config
 from d2u.telemetry.events import FeedbackEvent
+from opentelemetry.sdk.trace import SpanProcessor
 from plain.test import Client
 
 from app.generate.jobs import GenerateDocJob
-from tests.helpers import read_fixture
+from tests.helpers import read_fixture, use_trace_backends
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -37,6 +37,12 @@ class RecordingBackend:
 
     def trace_url(self, trace_id: str) -> str | None:
         return None
+
+    def span_processor(self) -> SpanProcessor:
+        return SpanProcessor()
+
+    def shutdown(self) -> None:
+        pass
 
 
 def test_page_feedback_is_saved_and_shown() -> None:
@@ -110,10 +116,10 @@ def test_unsafe_anchors_are_dropped_from_the_redirect() -> None:
     assert response.headers["Location"] == f"/generations/{generation.id}"
 
 
-def test_feedback_is_mirrored_to_active_backends(monkeypatch) -> None:
+def test_feedback_is_mirrored_to_selected_backends(monkeypatch) -> None:
     generation = succeeded_generation()
     backend = RecordingBackend()
-    monkeypatch.setattr(telemetry_config, "_active_backends", [backend])
+    use_trace_backends(monkeypatch, [backend])
 
     post_feedback(generation, operation_id="GET /pets", score="-1", comment="Wrong.")
 
@@ -128,6 +134,17 @@ def test_feedback_is_mirrored_to_active_backends(monkeypatch) -> None:
             ),
         )
     ]
+
+
+def test_feedback_is_not_mirrored_to_a_deselected_backend(monkeypatch) -> None:
+    generation = succeeded_generation()
+    backend = RecordingBackend()
+    use_trace_backends(monkeypatch, [backend], selected=set())
+
+    post_feedback(generation, score="1")
+
+    assert Feedback.query.count() == 1
+    assert backend.calls == []
 
 
 def test_feedback_buttons_appear_in_the_app_but_not_in_exports() -> None:

@@ -18,7 +18,7 @@ The project is being reworked into two Plain apps that share one Postgres databa
 | App | Role |
 | --- | --- |
 | **Docs app** (`docs_app/`) | Generates and shows documentation pages. This is everything described in [Features](#features). |
-| **Tuning app** (`tuning_app/`) | Evaluates and tunes the Docs app through a web UI. Today it shows the shared trace viewer; model management, gold sets, evals and optimization arrive in R4 and R5. |
+| **Tuning app** (`tuning_app/`) | Evaluates and tunes the Docs app through a web UI. Today it has the shared trace viewer and the Settings page where trace backends are chosen; model management, gold sets, evals and optimization arrive in R4 and R5. |
 
 The shared `d2u` library (`shared/`) holds the contracts, parsers, telemetry, trace store and design system. The apps may later merge into one app with a Tuning section.
 
@@ -27,7 +27,7 @@ The shared `d2u` library (`shared/`) holds the contracts, parsers, telemetry, tr
 | v6 **M1–M5** | Single-app version: OpenAPI and Python input, DSPy enrichment, jobs, tracing, feedback, optimization pipeline, containers | Done |
 | **R1** | Restructure into a uv workspace (`shared`, `docs_app`, `tuning_app`) with no behavior change | Done |
 | **R2** | Direct LiteLLM generation in the Docs app, model and prompt registry, 1 MB input cap, DSPy removed from the Docs app | Done |
-| **R3** | Trace backend selectable in the UI | Planned |
+| **R3** | Trace backend selectable in the UI | Done |
 | **R4** | Tuning app: models, gold sets, evals and metrics, run comparison | Planned |
 | **R5** | Tuning app: DSPy optimization and prompt promotion | Planned |
 | **R6** | Containers for both apps, CI, docs | Planned |
@@ -171,13 +171,14 @@ PLAIN_GENERATIONS_FAKE_RESPONSES=tests/fixtures/llm/fake.json
 | `PLAIN_SOURCES_ZIP_MAX_UNCOMPRESSED_BYTES` | `52428800` | Total bytes a zip may expand to (50 MB). |
 | `PLAIN_SOURCES_ZIP_MAX_FILE_BYTES` | `5242880` | Largest file inside a zip (5 MB). |
 | `PLAIN_SOURCES_ZIP_MAX_ENTRIES` | `5000` | Most entries a zip may have. |
-| `PLAIN_TELEMETRY_BACKENDS` | `["native"]` | Trace backends: `native`, `langfuse`, both, or `[]`. |
 | `PLAIN_TELEMETRY_SERVICE_NAME` | `docs-to-ui` | Service name on traces. |
 | `PLAIN_TELEMETRY_NATIVE_MAX_ATTRIBUTE_BYTES` | `262144` | Longer span attributes are truncated. |
+| `PLAIN_TELEMETRY_SETTINGS_TTL_S` | `10` | How long each process caches the trace backends chosen in the Tuning app. |
+| `PLAIN_TELEMETRY_EXPORT_ENABLED` | `true` | `false` attaches no trace backend at all, whatever is chosen. The test suites and the image build turn it off. |
 | `PLAIN_TRACES_RETENTION_DAYS` | `30` | Native spans older than this are pruned daily. |
-| `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_PROJECT_ID` | — | Required when `langfuse` is active; missing values stop startup with an error naming them. |
+| `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_PROJECT_ID` | — | Needed before Langfuse can be chosen. Set them in both apps' `.env` files. |
 
-Changing `PLAIN_TELEMETRY_BACKENDS` takes effect when you restart both the web server and the worker.
+Which trace backends receive spans (native, Langfuse, both or none) isn't an environment variable: it is chosen on the Tuning app's **Settings** page and applies to both apps within `PLAIN_TELEMETRY_SETTINGS_TTL_S` seconds, with no restart.
 
 ### The design system
 
@@ -309,9 +310,11 @@ Click **Export HTML** to download a standalone page you can open from disk, emai
 
 Click **View trace** on a generation, or **Traces** in the header for the list, filterable by generation and status. The waterfall shows every span, colored by type (request, job, stage, LLM, database), with errors labeled. Click a span to see its attributes and events; LLM spans also show the model, the messages and token counts. Spans arrive in batches every few seconds, so reload to see the newest ones.
 
-### 9. Use Langfuse
+### 9. Choose trace backends and use Langfuse
 
-Set the four `LANGFUSE_*` variables and `PLAIN_TELEMETRY_BACKENDS=["native","langfuse"]` (or just `["langfuse"]`), then restart `plain dev`. Traces appear in your Langfuse project, feedback appears as `user_feedback` scores, and **View trace** links to the first backend with a viewer (native, if active).
+Open the Tuning app's **Settings** page (`https://localhost:8444/tuning/settings`) and tick **Native**, **Langfuse**, both or neither, then click **Save settings**. Both apps, web servers and workers alike, use the new choice within 10 seconds; nothing needs a restart. The Docs app shows the current choice, read-only, on its generation form and trace list.
+
+Langfuse stays greyed out until its four `LANGFUSE_*` variables are set; the page names the missing ones. Set them in both `docs_app/.env` and `tuning_app/.env` and restart both apps once. With Langfuse chosen, traces appear in your Langfuse project, feedback appears as `user_feedback` scores, and **View trace** links to the first chosen backend with a viewer (native, if chosen). The in-app trace list shows native traces only.
 
 ### 10. Evaluate and tune
 
@@ -335,7 +338,8 @@ docs-to-ui/
 │       ├── registry/            Plain package: ModelConfig, PromptVersion, RuntimeSettings, seeds
 │       ├── sources/             Bundles, the safe zip reader, adapters (OpenAPI, Python), registry
 │       ├── generations/         Plain package: Generation and Feedback models and settings
-│       ├── telemetry/           Plain package: tracer provider, backends, api, MirrorFeedbackJob
+│       ├── telemetry/           Plain package: tracer provider, backends, routing processor, api,
+│       │                        MirrorFeedbackJob
 │       ├── traces/              Plain package: TraceSpan, exporter, viewer, PruneTracesJob
 │       └── ui/                  Plain package: tokens, component CSS, JS, shared elements
 ├── docs_app/                    The Docs app (Plain project "docs")
@@ -351,7 +355,8 @@ docs-to-ui/
 │   ├── app/
 │   │   ├── settings.py, urls.py Every route under /tuning/
 │   │   ├── templates/           App shell
-│   │   └── dashboard/           Placeholder dashboard (R4 builds the real UI)
+│   │   ├── dashboard/           Placeholder dashboard (R4 builds the real UI)
+│   │   └── settings_ui/         Settings page: trace backends
 │   └── dspy_pipeline/           Datasets and metric code, the starting point for R4
 ├── design/docs-to-ui/           OpenDesign package: manifest, DESIGN.md, tokens, reference mockups
 ├── scripts/
@@ -362,7 +367,7 @@ docs-to-ui/
 │   ├── shared/                  Mirrors d2u (run by the Docs app's test suite)
 │   ├── docs_app/                Docs app unit and integration tests
 │   ├── tuning_app/              Tuning app and pipeline tests
-│   └── e2e/                     Playwright journeys against the Docs app
+│   └── e2e/                     Playwright journeys against the Docs app (and the Tuning app)
 ├── .github/workflows/           ci.yml (every push; evals.yml returns in R5)
 ├── Dockerfile                   base, test and prod stages
 ├── docker-compose.yml           Postgres for development
@@ -409,7 +414,7 @@ Archives are read with `zipfile` from the stored bytes and never extracted to di
 
 ### Tracing
 
-All instrumentation is OpenTelemetry: Plain's request, database and job spans, OpenInference spans for every LiteLLM call, and the job's own stage spans. At startup `d2u.telemetry` attaches to an existing tracer provider or installs one, adds a baggage processor that copies `docs.generation_id`, `docs.model` and `docs.prompt_version` onto every span, and adds one processor per backend. The job starts its root span as a child of the stored request context, so request, job and LLM spans share one trace ID; an integration test enforces this. The native exporter writes batches with its own psycopg connection in one parameterized statement, truncates long attributes and never raises. Only `d2u.telemetry` knows which backends exist.
+All instrumentation is OpenTelemetry: Plain's request, database and job spans, OpenInference spans for every LiteLLM call, and the job's own stage spans. At startup `d2u.telemetry` attaches to an existing tracer provider or installs one, adds a baggage processor that copies `docs.generation_id`, `docs.model` and `docs.prompt_version` onto every span, and attaches a processor for every backend it could use: native always, Langfuse when its variables are set. A routing processor in front of them forwards each finished span only to the backends chosen on the Tuning app's Settings page. It reads that choice from `RuntimeSettings` with its own short-lived psycopg connection (outside Plain's query instrumentation and any request transaction) and caches it for `PLAIN_TELEMETRY_SETTINGS_TTL_S` seconds; if the database can't be read, it keeps the last choice and tries again after the TTL. The job starts its root span as a child of the stored request context, so request, job and LLM spans share one trace ID; an integration test enforces this. The native exporter writes batches with its own psycopg connection in one parameterized statement, truncates long attributes and never raises. Only `d2u.telemetry` knows which backends exist.
 
 ### Untrusted text
 
@@ -477,33 +482,37 @@ The full containerized suite, the same checks CI runs, with nothing installed lo
 docker compose -f docker-compose.test.yml up --build --abort-on-container-exit
 ```
 
-Tests never call a real LLM: database tests make a fake model active, which answers through LiteLLM's mock responses from `tests/fixtures/llm/fake.json`, and E2E servers and workers run without any provider keys. Tests can't reach the internet either: `pytest-socket` blocks every connection except localhost.
+Tests never call a real LLM: database tests make a fake model active, which answers through LiteLLM's mock responses from `tests/fixtures/llm/fake.json`, and E2E servers and workers run without any provider keys or Langfuse credentials. Unit and integration tests export no traces (`PLAIN_TELEMETRY_EXPORT_ENABLED=false` in `.env.test`); E2E servers turn tracing on and use the native store in their isolated database. Tests can't reach the internet either: `pytest-socket` blocks every connection except localhost.
 
 ### Test structure
 
 ```
 tests/shared/              The d2u library: adapters (including the contract suite), zip safety,
                            LiteLLM client, prompts, splitting, ID derivation, strategies, registry,
-                           exporter mapping, trace viewer logic, backend factory, design sync, CSS rule
+                           exporter mapping, trace viewer logic, backend availability, routing
+                           processor and selection cache, design sync, CSS rule
 tests/docs_app/            Docs app: presentation, sanitizer, job states and failures, strategies, zips,
                            the no-DSPy guard,
                            feedback and mirroring, native export and trace viewer, telemetry
-                           wiring (one trace ID)
-tests/tuning_app/          Tuning app skeleton, metric code and datasets
+                           wiring (one trace ID), runtime backend switching, read-only selection
+tests/tuning_app/          Tuning app skeleton, Settings page, metric code and datasets
 tests/e2e/                 Paste, zip upload, progress, failure and retry, trace viewer,
-                           example tabs and copy, feedback, exports opened from disk
+                           example tabs and copy, feedback, exports opened from disk, switching
+                           trace backends in the Tuning app
 tests/fixtures/            OpenAPI (single and multi-file), a Python package, fake-model responses,
                            and each adapter's contract.json
 ```
 
 ## Development Status
 
-v6 (milestones M1–M5) is complete, and v7 is in progress on the `redesign/v7` branch: R1 (the workspace restructure) and R2 (direct LLM generation and the registry) are done; R3–R6 are planned. See the milestone table in [About This Project](#about-this-project) and `SPEC.md` §18.
+v6 (milestones M1–M5) is complete, and v7 is in progress on the `redesign/v7` branch: R1 (the workspace restructure), R2 (direct LLM generation and the registry) and R3 (trace backends chosen in the UI) are done; R4–R6 are planned. See the milestone table in [About This Project](#about-this-project) and `SPEC.md` §18.
 
 Known gaps and deliberate differences from `SPEC.md`:
 
 - **No management UI yet.** Models, prompt versions and the active choices can only be changed from Plain's shell until the Tuning app's UI arrives in R4.
-- **The trace backend is still a setting.** Choosing it in the UI arrives in R3; until then it's `PLAIN_TELEMETRY_BACKENDS`.
+- **An extra telemetry setting.** `PLAIN_TELEMETRY_EXPORT_ENABLED` (not in v7's first draft) lets the test suites and the image build turn tracing off now that `PLAIN_TELEMETRY_BACKENDS` is gone; `SPEC.md` §16 lists it.
+- **The trace viewer has no eval-run filter yet.** `TraceSpan.eval_run_id` and its filter (SPEC §11.4) arrive with eval runs in R4.
+- **Langfuse credentials are per process.** Each app reads the `LANGFUSE_*` variables from its own environment, so the Settings page can only check the Tuning app's. An app without them skips Langfuse even when it's chosen, and says so on its pages.
 - **One shared development environment.** The uv workspace installs every member's dependencies into one `.venv`, so DSPy is installed there for the Tuning app. The Docs app never imports it (a test checks), and its production image contains only its own dependencies.
 - **`optuna` is opt-in.** It's in the Tuning app's `optimize` group: optuna brings numpy into the shared environment, and a half-imported numpy races with psycopg's numpy adapters when the Docs app's worker starts. Install it with `uv sync --all-packages --group optimize`.
 - **No pre-commit hook.** Plain's hook runs `plain` from the repository root, where there is no app. Run the checks in [Code Quality](#code-quality) instead.
@@ -532,9 +541,13 @@ No job worker is running. The Docs app's `plain dev` starts one; otherwise run `
 
 Check that the active model's key (for the seeded model, `GEMINI_API_KEY`) is set in `docs_app/.env` and valid, then click **Retry**. To try the app without a key, use the fake model described in [Configuration](#configuration).
 
-### The app won't start: "The langfuse telemetry backend needs …"
+### Langfuse is greyed out on the Settings page
 
-`langfuse` is in `PLAIN_TELEMETRY_BACKENDS` but some `LANGFUSE_*` variables are missing. Set the ones named in the message, or remove `langfuse` from the list.
+Some `LANGFUSE_*` variables are missing from the Tuning app's environment; the page names them. Set them in both apps' `.env` files and restart both apps. If the Docs app's form says "Langfuse (not configured in this app)", the Docs app's `.env` is the one missing them.
+
+### No new traces appear
+
+Check the Tuning app's **Settings** page: if **Native** isn't ticked, nothing is written to the in-app trace store. A change takes up to 10 seconds to reach every process. `PLAIN_TELEMETRY_EXPORT_ENABLED=false` turns tracing off entirely. An old `PLAIN_TELEMETRY_BACKENDS` line in a `.env` file no longer does anything (preflight reports it as unused); delete it.
 
 ### A trace page says "Waiting for spans…" or is missing spans
 

@@ -27,7 +27,10 @@ def test_booting_the_docs_app_loads_no_dspy() -> None:
         "import app.urls, app.generate.pipeline, app.generate.jobs; "
         "print('dspy' in sys.modules)"
     )
-    env = os.environ | {"PLAIN_POSTGRES_URL": "none", "PLAIN_TELEMETRY_BACKENDS": "[]"}
+    env = os.environ | {
+        "PLAIN_POSTGRES_URL": "none",
+        "PLAIN_TELEMETRY_EXPORT_ENABLED": "false",
+    }
 
     result = subprocess.run(
         [sys.executable, "-c", code],

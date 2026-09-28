@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Settings · Docs-to-UI Tuning{% endblock %}
+
+{% block content %}
+{% set chosen = form.trace_backends.value() or [] %}
+<main class="app-container">
+    <form
+        class="card settings-form"
+        method="post"
+        action="{{ url('settings:index') }}"
+        aria-labelledby="settings-heading"
+    >
+        <h1 class="card-title" id="settings-heading">Settings</h1>
+        {% if saved %}
+        <p class="form-success" role="status">
+            Saved. Both apps use the new choice within {{ ttl_s }} seconds.
+        </p>
+        {% endif %}
+        <fieldset class="form-group choice-group">
+            <legend class="form-label">Trace backends</legend>
+            <span class="hint">
+                Where the Docs app and the Tuning app send their traces. Choose any, or none.
+            </span>
+            {% for option in backend_options %}
+            <div class="choice">
+                <input
+                    type="checkbox"
+                    id="trace-backend-{{ option.name }}"
+                    name="{{ form.trace_backends.html_name }}"
+                    value="{{ option.name }}"
+                    {% if option.name in chosen %}checked{% endif %}
+                    {% if not option.available %}disabled aria-describedby="trace-backend-{{ option.name }}-missing"{% endif %}
+                >
+                <label for="trace-backend-{{ option.name }}">{{ option.label }}</label>
+                {% if not option.available %}
+                <span class="hint" id="trace-backend-{{ option.name }}-missing">
+                    Set {{ option.missing|join(", ") }} in both apps' .env files and restart them to enable.
+                </span>
+                {% endif %}
+            </div>
+            {% endfor %}
+            {% for error in form.trace_backends.errors %}
+            <span class="form-error" role="alert">{{ error }}</span>
+            {% endfor %}
+        </fieldset>
+        <div>
+            <button type="submit" class="button button-primary">Save settings</button>
+        </div>
+    </form>
+</main>
+{% endblock %}

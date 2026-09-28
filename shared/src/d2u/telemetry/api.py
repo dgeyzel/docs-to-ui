@@ -16,7 +16,7 @@ from opentelemetry.trace import (
 
 from d2u.generations.models import Feedback, Generation
 from d2u.telemetry.backends.base import FeedbackDeliverer
-from d2u.telemetry.config import active_backends
+from d2u.telemetry.config import available_backends, selected_backends
 from d2u.telemetry.events import FeedbackEvent
 
 logger = logging.getLogger(__name__)
@@ -53,10 +53,10 @@ def tag_current_span(*, generation_id: int) -> None:
 
 
 def trace_url(trace_id: str) -> str | None:
-    """Where to view a trace: the first active backend that has a URL."""
+    """Where to view a trace: the first selected backend that has a URL."""
     if not trace_id:
         return None
-    for backend in active_backends():
+    for backend in selected_backends():
         url = backend.trace_url(trace_id)
         if url:
             return url
@@ -112,7 +112,7 @@ def stage_span(name: str) -> Iterator[trace.Span]:
 
 
 def record_feedback(generation: Generation, event: FeedbackEvent) -> Feedback:
-    """Save feedback natively, then mirror it to every active backend.
+    """Save feedback natively, then mirror it to every selected backend.
 
     Backends never raise from `record_feedback`, so mirroring can't lose the
     saved row.
@@ -125,7 +125,7 @@ def record_feedback(generation: Generation, event: FeedbackEvent) -> Feedback:
         trace_id=generation.trace_id,
     )
     feedback.create()
-    for backend in active_backends():
+    for backend in selected_backends():
         backend.record_feedback(generation.trace_id, event)
     return feedback
 
@@ -133,14 +133,17 @@ def record_feedback(generation: Generation, event: FeedbackEvent) -> Feedback:
 def deliver_feedback(*, backend_name: str, trace_id: str, event: FeedbackEvent) -> None:
     """Send queued feedback to one backend (used by `MirrorFeedbackJob`).
 
+    The feedback was queued while the backend was selected, so it is
+    delivered even if the backend has been deselected since.
+
     Raises:
         Exception: Whatever the backend raises, so the job can retry.
     """
-    for backend in active_backends():
+    for backend in available_backends():
         if backend.name == backend_name and isinstance(backend, FeedbackDeliverer):
             backend.deliver_feedback(trace_id, event)
             return
-    logger.warning("No active backend %s can deliver feedback", backend_name)
+    logger.warning("No available backend %s can deliver feedback", backend_name)
 
 
 @contextmanager

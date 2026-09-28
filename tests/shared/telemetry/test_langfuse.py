@@ -2,13 +2,13 @@ import base64
 from typing import Any, ClassVar
 
 import pytest
-from d2u.telemetry import config as telemetry_config
 from d2u.telemetry.backends import langfuse as langfuse_backend
 from d2u.telemetry.backends.langfuse import LangfuseBackend
-from d2u.telemetry.config import build_backends
+from d2u.telemetry.config import build_available_backends
 from d2u.telemetry.events import FeedbackEvent
-from d2u.telemetry.exceptions import TelemetryConfigurationError
 from d2u.telemetry.otlp import langfuse_auth_header, langfuse_traces_endpoint
+
+from tests.helpers import use_trace_backends
 
 TRACE_ID = "a" * 32
 
@@ -128,27 +128,24 @@ def test_record_feedback_never_raises_when_queueing_fails(
     )
 
 
-def test_langfuse_backend_requires_every_setting(settings) -> None:
+def test_langfuse_is_unavailable_while_any_setting_is_missing(settings) -> None:
     settings.TELEMETRY_LANGFUSE_BASE_URL = "https://lf.example"
     settings.TELEMETRY_LANGFUSE_PUBLIC_KEY = ""
     settings.TELEMETRY_LANGFUSE_SECRET_KEY = ""
     settings.TELEMETRY_LANGFUSE_PROJECT_ID = "p"
 
-    with pytest.raises(TelemetryConfigurationError) as excinfo:
-        build_backends(["langfuse"])
+    backends = build_available_backends()
 
-    assert str(excinfo.value) == (
-        "The langfuse telemetry backend needs LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY."
-    )
+    assert [backend.name for backend in backends] == ["native"]
 
 
-def test_both_backends_can_be_active_at_once(settings) -> None:
+def test_both_backends_are_available_when_langfuse_is_configured(settings) -> None:
     settings.TELEMETRY_LANGFUSE_BASE_URL = "https://lf.example"
     settings.TELEMETRY_LANGFUSE_PUBLIC_KEY = "pk"
     settings.TELEMETRY_LANGFUSE_SECRET_KEY = "sk"
     settings.TELEMETRY_LANGFUSE_PROJECT_ID = "p"
 
-    backends = build_backends(["native", "langfuse"])
+    backends = build_available_backends()
 
     assert [backend.name for backend in backends] == ["native", "langfuse"]
 
@@ -158,7 +155,7 @@ def test_trace_url_prefers_the_first_backend_with_a_url(
 ) -> None:
     from d2u.telemetry.api import trace_url
 
-    monkeypatch.setattr(telemetry_config, "_active_backends", [make_backend()])
+    use_trace_backends(monkeypatch, [make_backend()])
 
     assert (
         trace_url(TRACE_ID)

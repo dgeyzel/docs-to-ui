@@ -20,6 +20,7 @@ INSTALLED_PACKAGES = [
     "d2u.ui",
     # Local packages.
     "app.dashboard",
+    "app.settings_ui",
 ]
 
 MIDDLEWARE = [

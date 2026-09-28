@@ -34,7 +34,7 @@ FROM base AS prod
 RUN uv sync --frozen --no-dev --package docs \
     && python -c "import importlib.util, sys; sys.exit(importlib.util.find_spec('dspy') is not None)"
 WORKDIR /repo/docs_app
-RUN PLAIN_POSTGRES_URL=none PLAIN_SECRET_KEY=build-only PLAIN_TELEMETRY_BACKENDS='[]' \
+RUN PLAIN_POSTGRES_URL=none PLAIN_SECRET_KEY=build-only PLAIN_TELEMETRY_EXPORT_ENABLED=false \
     plain assets compile
 EXPOSE 8000
 CMD ["plain", "server", "--bind", "0.0.0.0:8000"]

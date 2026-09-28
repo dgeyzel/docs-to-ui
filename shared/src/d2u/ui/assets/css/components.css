@@ -262,6 +262,36 @@ kbd {
   font-size: var(--text-sm);
 }
 
+.form-success {
+  margin: 0;
+  color: var(--success);
+  font-size: var(--text-sm);
+}
+
+/* Checkbox groups (Tuning app settings) */
+
+.choice-group {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
+  font-size: var(--text-sm);
+}
+
+.choice input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+.choice input:disabled + label {
+  color: var(--muted);
+}
+
 /* Tabs (source form and code examples) */
 
 .tabs,

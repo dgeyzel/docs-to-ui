@@ -4,6 +4,8 @@ from typing import Any
 from plain.http import NotFoundError404
 from plain.templates.views import TemplateView
 
+from d2u.registry.lookups import trace_backends
+from d2u.telemetry.config import selection_summary
 from d2u.traces.models import TraceSpan
 from d2u.traces.presentation import (
     attribute_rows,
@@ -37,6 +39,7 @@ class TraceListView(TemplateView):
         context["traces"] = recent_traces(generation_id=generation_id, status=status)
         context["generation_filter"] = raw_generation if generation_id else ""
         context["status_filter"] = status
+        context["trace_backends_label"] = selection_summary(trace_backends())
         return context
 
 

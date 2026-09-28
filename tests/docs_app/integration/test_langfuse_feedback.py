@@ -2,7 +2,6 @@ from typing import Any, ClassVar
 
 import pytest
 from d2u.generations.models import Feedback, Generation
-from d2u.telemetry import config as telemetry_config
 from d2u.telemetry.backends import langfuse as langfuse_backend
 from d2u.telemetry.backends.langfuse import LangfuseBackend
 from d2u.telemetry.jobs import MirrorFeedbackJob
@@ -10,7 +9,7 @@ from plain.jobs.models import JobRequest
 from plain.test import Client
 
 from app.generate.jobs import GenerateDocJob
-from tests.helpers import read_fixture
+from tests.helpers import read_fixture, use_trace_backends
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -35,7 +34,7 @@ def test_feedback_is_saved_then_mirrored_to_langfuse_by_a_job(monkeypatch) -> No
     backend = LangfuseBackend(
         base_url="https://lf.example", public_key="pk", secret_key="sk", project_id="p"
     )
-    monkeypatch.setattr(telemetry_config, "_active_backends", [backend])
+    use_trace_backends(monkeypatch, [backend])
     monkeypatch.setattr(langfuse_backend, "Langfuse", FakeLangfuse)
     FakeLangfuse.scores.clear()
     Client().post(
@@ -70,7 +69,7 @@ def test_generation_page_links_to_langfuse_when_it_is_the_backend(monkeypatch) -
     backend = LangfuseBackend(
         base_url="https://lf.example", public_key="pk", secret_key="sk", project_id="p"
     )
-    monkeypatch.setattr(telemetry_config, "_active_backends", [backend])
+    use_trace_backends(monkeypatch, [backend])
     Client().post(
         "/generations",
         data={"text": read_fixture("openapi/petstore-3.0.yaml"), "language": ""},
