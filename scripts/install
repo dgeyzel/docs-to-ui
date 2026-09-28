@@ -1,12 +1,11 @@
 #!/bin/sh -e
 
-if [ ! -f .env ]; then
-    echo "Copying .env.example to .env"
-    cp .env.example .env
-fi
+for app in docs_app tuning_app; do
+    if [ ! -f "$app/.env" ]; then
+        echo "Copying $app/.env.example to $app/.env"
+        cp "$app/.env.example" "$app/.env"
+    fi
+done
 
 echo "Installing dependencies with uv"
-uv sync
-
-echo "Installing plain pre-commit hooks"
-uv run plain pre-commit install
+uv sync --all-packages

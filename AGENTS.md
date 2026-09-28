@@ -52,22 +52,27 @@ Plain resolves its app as `./app`, so app commands run inside a project director
 | Task | Command |
 |---|---|
 | Install dependencies (all members) | `uv sync --all-packages` |
+| Install the MIPROv2 extra (Tuning app) | `uv sync --all-packages --group optimize` |
 | Add a dependency to one member | `uv add --package <d2u\|docs\|tuning> <pkg>` |
 | Add a dev-only dependency | `uv add --group dev <pkg>` (workspace root) |
-| Run the Docs app (web + worker, loads `docs_app/.env`) | `uv run --directory docs_app plain dev` |
-| Run the Tuning app (web + worker, loads `tuning_app/.env`) | `uv run --directory tuning_app plain dev` |
+| Run the Docs app (web + worker, loads `docs_app/.env`) | `uv run --directory docs_app plain dev --hostname localhost --port 8443` |
+| Run the Tuning app (web, loads `tuning_app/.env`) | `uv run --directory tuning_app plain dev --hostname localhost --port 8444` |
 | Create a local package in an app | `uv run --directory <app dir> plain create <name>` |
 | Schema changes (either app; shared migrations are identical) | `uv run --directory docs_app plain postgres sync` |
-| Auto-fix lint and format | `uv run plain fix` |
-| Lint, format, and type check without changing files | `uv run plain code check` |
-| Unit + integration tests (the default suite) | `uv run pytest` |
-| E2E tests | `uv run pytest -m e2e` |
-| Full containerized suite (same as CI) | `docker compose -f docker-compose.test.yml up --abort-on-container-exit` |
-| Framework docs for a package | `uv run --directory docs_app plain docs <package>` (e.g. `plain docs jobs`) |
-| Sync Plain's own agent rules | `uv run --directory docs_app plain agent install` (writes to `.claude/rules/` and `.claude/skills/`) |
+| Preflight checks | `uv run --directory <app dir> plain preflight` |
+| Auto-fix lint and format | `uv run plain-code fix`, then `uv run --directory docs_app plain fix --skip-oxc . ../tests/docs_app` and `uv run --directory tuning_app plain fix --skip-oxc . ../tests/tuning_app` |
+| Lint, format, and type check without changing files | The same three commands with `code check` in place of `fix` (`uv run plain-code check` at the root) |
+| Unit + integration tests (the default suite) | `uv run --directory docs_app pytest` (shared and Docs tests) and `uv run --directory tuning_app pytest` |
+| E2E tests | `uv run --directory docs_app pytest -m e2e` |
+| Full containerized suite (same as CI) | `docker compose -f docker-compose.test.yml up --build --abort-on-container-exit` |
+| Framework docs for a package | `uv run plain docs <package>` (e.g. `plain docs jobs`) |
+| Sync Plain's own agent rules | `uv run plain agent install` (writes to `.claude/rules/` and `.claude/skills/`) |
 | Sync design tokens | `uv run python scripts/sync_design.py` |
 
-If a root-level command (`plain fix`, `plain code check`, `pytest`) doesn't behave as listed once the workspace exists, milestone R1 fixes the command and updates this table.
+Why the commands are split:
+- `plain.pytest` boots a Plain app, so tests run from an app directory. The Docs app also runs the shared library's tests, because the DB-backed ones need an app with the `d2u` packages installed.
+- Both apps' packages are named `app`, so each app is type-checked from its own directory. The root run (`plain-code`) covers `shared/`, `scripts/`, the shared and E2E tests, and all CSS/JS. The app runs skip oxc because apps contain no CSS/JS.
+- `plain dev --hostname localhost` avoids an `/etc/hosts` edit (which needs `sudo`); the fixed ports keep the two apps apart.
 
 **Dependency rules**
 - Never use `pip`.
@@ -137,8 +142,8 @@ These come from `SPEC.md` and are easy to break by accident.
 
 ### 5.1 Language and style
 - Target the Python version in `pyproject.toml` (`requires-python`). Use modern syntax, and don't write compatibility shims for older versions.
-- All code **MUST** pass `uv run plain code check`, which runs ruff (lint and format) and ty (type checking).
-  - Don't hand-format. Run `uv run plain fix`.
+- All code **MUST** pass the three `code check` commands in §1, which run ruff (lint and format), ty (type checking) and, at the root, oxlint and oxfmt.
+  - Don't hand-format. Run the three `fix` commands.
   - PEP 8 is enforced through ruff; there is nothing extra to do.
 - Use absolute imports. No wildcard imports.
 - **No side effects at import time.** No network calls, database queries, or file I/O at module level. One-time setup belongs in `PackageConfig.ready()`.
@@ -231,8 +236,8 @@ tests/
 Unit tests mirror the package structure. Integration and E2E tests are grouped by feature.
 
 ### 8.2 Running
-- `uv run pytest` runs unit and integration tests. E2E tests are excluded by default and run with `-m e2e`.
-- `pyproject.toml` sets `addopts = "-m 'not e2e' --strict-markers"` and registers every marker.
+- Tests run per app (§1). Unit and integration tests run by default; E2E tests are excluded by default and run with `-m e2e`.
+- Each app's `pyproject.toml` sets `addopts = "-m 'not e2e' --strict-markers"`, registers every marker, and lists its test paths.
 - Use Plain's `plain.pytest` fixtures for the database and settings. Don't create your own database setup.
 
 ### 8.3 No real LLMs, no internet
@@ -278,8 +283,8 @@ Every bug fix starts with a regression test that fails for the reported reason. 
 
 A task is finished only when all of these are true. Report the result of each in your summary.
 
-- [ ] `uv run plain fix` has been run, and `uv run plain code check` passes with no errors.
-- [ ] `uv run pytest` passes. Also run `-m e2e` if templates, elements, views, or JS changed. All runs happen in Linux/WSL (§0).
+- [ ] The three `fix` commands (§1) have been run, and the three `code check` commands pass with no errors.
+- [ ] Both apps' test suites pass (`uv run --directory docs_app pytest`, `uv run --directory tuning_app pytest`). Also run `-m e2e` if templates, elements, views, or JS changed. All runs happen in Linux/WSL (§0).
 - [ ] New or changed behavior has tests. Bug fixes have a regression test.
 - [ ] No architecture invariant (§3) or security rule (§7) is violated.
 - [ ] New settings appear in `default_settings.py`, the relevant app's `.env.example`, and the configuration table in `SPEC.md`.

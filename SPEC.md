@@ -497,7 +497,7 @@ docs-to-ui/
 ```
 
 - Each Plain project runs from its own directory, e.g. `uv run --directory docs_app plain dev`. Each has its own `.plain/` state, `.env` and `.env.example`; shared values such as `DATABASE_URL` appear in both.
-- The projects are named `docs` and `tuning`, so `plain dev` serves them at `https://docs.localhost:8443` and `https://tuning.localhost:8444`.
+- The projects are named `docs` and `tuning`. In development they run at `https://localhost:8443` and `https://localhost:8444` (`plain dev --hostname localhost --port …`), which needs no `/etc/hosts` entry.
 - The Docs app's environment never installs DSPy. A test enforces this.
 
 ## 16. Configuration Summary
@@ -544,7 +544,7 @@ Removed from v6:
 
 | | Scope | Proves |
 |---|---|---|
-| **R1** | Restructure into the uv workspace (`shared`, `docs_app`, `tuning_app` skeleton). Move v6 code into `d2u` and `docs_app` with no behavior change, and keep every test green. | Layout |
+| **R1** | Restructure into the uv workspace (`shared`, `docs_app`, `tuning_app` skeleton). Move v6 code into `d2u` and `docs_app` with no behavior change, and keep every test green. Because behavior doesn't change, the Docs app still generates with DSPy during R1: the v6 DSPy program code lives temporarily in `d2u.llm` (and `dspy` in `d2u`'s dependencies) until R2 removes it. | Layout |
 | **R2** | Shared registry (`ModelConfig`, `PromptVersion`, `RuntimeSettings`) with seeds. Direct LiteLLM generation (`GeneratedPage`, ID derivation, splitting, 1 MB cap) in the Docs app. `hybrid` and `parser` strategies on the direct client. DSPy removed from the Docs app. | Direct generation |
 | **R3** | Trace backend selection in the UI with the routing processor. Shared trace viewer in both apps. | Selectable telemetry |
 | **R4** | Tuning app: model management, gold sets (create, seed, import, edit, approve, split), eval runs with every §9.5 metric, results and comparison UI. | Measurable quality |

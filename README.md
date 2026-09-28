@@ -9,17 +9,30 @@ Docs-to-UI is built from two documents in this repository:
 - [`SPEC.md`](SPEC.md) defines what to build: the architecture, contracts, settings and milestones.
 - [`AGENTS.md`](AGENTS.md) defines how to build it: the rules every coding agent and contributor follows.
 
-The visual design comes from an [OpenDesign](https://github.com/nexu-io/open-design) design-system package in `design/docs-to-ui/`, produced from [`DESIGN_BRIEF.md`](DESIGN_BRIEF.md). The app consumes only its `tokens.css`.
+The visual design comes from an [OpenDesign](https://github.com/nexu-io/open-design) design-system package in `design/docs-to-ui/`, produced from [`DESIGN_BRIEF.md`](DESIGN_BRIEF.md). The apps consume only its `tokens.css`.
+
+### Two apps, one database (SPEC v7, in progress)
+
+The project is being reworked into two Plain apps that share one Postgres database and a common library:
+
+| App | Role |
+| --- | --- |
+| **Docs app** (`docs_app/`) | Generates and shows documentation pages. This is everything described in [Features](#features). |
+| **Tuning app** (`tuning_app/`) | Evaluates and tunes the Docs app through a web UI. Today it shows the shared trace viewer; model management, gold sets, evals and optimization arrive in R4 and R5. |
+
+The shared `d2u` library (`shared/`) holds the contracts, parsers, telemetry, trace store and design system. The apps may later merge into one app with a Tuning section.
 
 | Milestone | Scope | Status |
 | --- | --- | --- |
-| **M1** | OpenAPI adapter, rendering, HTML and JSON export, design-token sync, test harness | Done |
-| **M2** | LLM enrichment and batching, background jobs with live progress, OpenTelemetry tracing, native trace viewer | Done |
-| **M3** | Safe `.zip` input, Python adapter, multi-file OpenAPI `$ref`s, adapter contract suite | Done |
-| **M4** | Feedback, evaluation datasets and metrics, `optimize.py`, `evals.yml` | Done, except the first promoted artifact (needs a real Gemini run) |
-| **M5** | Langfuse tracing backend and feedback mirroring, containers, CI | Done |
+| v6 **M1–M5** | Single-app version: OpenAPI and Python input, DSPy enrichment, jobs, tracing, feedback, optimization pipeline, containers | Done |
+| **R1** | Restructure into a uv workspace (`shared`, `docs_app`, `tuning_app`) with no behavior change | Done |
+| **R2** | Direct LiteLLM generation in the Docs app, model and prompt registry, 1 MB input cap, DSPy removed from the Docs app | Planned |
+| **R3** | Trace backend selectable in the UI | Planned |
+| **R4** | Tuning app: models, gold sets, evals and metrics, run comparison | Planned |
+| **R5** | Tuning app: DSPy optimization and prompt promotion | Planned |
+| **R6** | Containers for both apps, CI, docs | Planned |
 
-Where the code differs from the spec, see [Development Status](#development-status).
+Until R2, the Docs app still works as v6 did: it parses the input and enriches it through DSPy. Where the code differs from the spec, see [Development Status](#development-status).
 
 ## Features
 
@@ -80,7 +93,7 @@ Where the code differs from the spec, see [Development Status](#development-stat
 - **Rendering:** markdown-it-py with output sanitized by nh3
 - **Styling and scripts:** plain CSS with design-system custom properties (no Tailwind) and vanilla JavaScript
 - **Observability:** OpenTelemetry SDK, `openinference-instrumentation-dspy`, a raw-psycopg span exporter, and the Langfuse SDK and OTLP exporter
-- **Tooling:** uv, ruff and ty (through `plain code`), pytest, Playwright, Docker, GitHub Actions
+- **Tooling:** a uv workspace, ruff and ty (through `plain code`), pytest, Playwright, Docker, GitHub Actions
 
 ## Requirements
 
@@ -101,20 +114,20 @@ git clone https://github.com/dgeyzel/docs-to-ui.git
 cd docs-to-ui
 ```
 
-Run the install script. It copies `.env.example` to `.env` if you don't have one, installs dependencies with `uv sync`, and installs Plain's pre-commit hook:
+Run the install script. It copies each app's `.env.example` to `.env` (in `docs_app/` and `tuning_app/`) if you don't have one, and installs every workspace member with `uv sync --all-packages`:
 
 ```bash
 ./scripts/install
 ```
 
-Start Postgres and create the schema:
+Start Postgres and create the schema. Both apps share the database, so either one can apply it:
 
 ```bash
 docker compose up -d --wait
-uv run plain postgres sync
+uv run --directory docs_app plain postgres sync
 ```
 
-Put your Gemini key in `.env`:
+Put your Gemini key in `docs_app/.env` (and in `tuning_app/.env` if you'll run evaluations):
 
 ```bash
 GEMINI_API_KEY=your-gemini-api-key
@@ -122,9 +135,9 @@ GEMINI_API_KEY=your-gemini-api-key
 
 ## Configuration
 
-Settings are read from `PLAIN_`-prefixed environment variables. `uv run plain dev` loads them from `.env`. The test suite loads the committed `.env.test` first, then `.env`. `.env` is never committed; `.env.example` lists every variable.
+Settings are read from `PLAIN_`-prefixed environment variables. Each app has its own files in its directory: `plain dev` loads that app's `.env`, and its test suite loads the committed `.env.test` first, then `.env`. `.env` files are never committed; each `.env.example` lists every variable that app reads.
 
-### .env
+### docs_app/.env
 
 ```bash
 PLAIN_DEBUG=true
@@ -173,7 +186,7 @@ Changing `PLAIN_TELEMETRY_BACKENDS` takes effect when you restart both the web s
 
 ### The design system
 
-`design/docs-to-ui/` is the OpenDesign package, copied into the repository by hand. Nothing in the app edits it. `app/assets/css/tokens.css` is a generated copy of its `tokens.css`. After the design package changes, validate it and refresh the copy:
+`design/docs-to-ui/` is the OpenDesign package, copied into the repository by hand. Nothing in the apps edits it. `shared/src/d2u/ui/assets/css/tokens.css` is a generated copy of its `tokens.css`, served to both apps. After the design package changes, validate it and refresh the copy:
 
 ```bash
 uv run python scripts/sync_design.py
@@ -187,7 +200,7 @@ The script checks the manifest and all 87 required tokens (light values plus bot
 
 ## Building the Application
 
-With `PLAIN_DEBUG=true` there is no build step: assets are served straight from `app/assets/`.
+With `PLAIN_DEBUG=true` there is no build step: assets are served straight from `shared/src/d2u/ui/assets/`.
 
 The `Dockerfile` has three stages:
 
@@ -195,7 +208,7 @@ The `Dockerfile` has three stages:
 | --- | --- |
 | `base` | The app and its runtime dependencies |
 | `test` | Dev dependencies and headless Chromium; runs the full suite |
-| `prod` | Compiled, fingerprinted assets; runs `plain server` |
+| `prod` | The Docs app with compiled, fingerprinted assets; runs `plain server` (a Tuning app image arrives in R6) |
 
 ```bash
 docker build --target prod -t docs-to-ui:prod .
@@ -226,15 +239,18 @@ docker run -d --name docs-to-ui-worker \
 
 ## Running the Application
 
-### Development server
+### Development servers
+
+Run each app in its own terminal:
 
 ```bash
-uv run plain dev
+uv run --directory docs_app plain dev --hostname localhost --port 8443
+uv run --directory tuning_app plain dev --hostname localhost --port 8444
 ```
 
-This loads `.env`, runs preflight checks, starts the web server with auto-reload, and starts the background job worker alongside it (configured in `[tool.plain.dev.run]` in `pyproject.toml`). The server prints its address, which is `https://app.localhost:8443` by default. Open it in your browser; on Windows, WSL forwards localhost automatically.
+Each command loads that app's `.env`, runs preflight checks and starts its web server with auto-reload. The Docs app also starts its background job worker (configured in `[tool.plain.dev.run]` in `docs_app/pyproject.toml`). Open the Docs app at `https://localhost:8443` and the Tuning app at `https://localhost:8444/tuning`; on Windows, WSL forwards localhost automatically. `--hostname localhost` avoids `plain dev` editing `/etc/hosts`, which needs `sudo`.
 
-The worker is required: without it, generations stay in "Waiting for a worker…".
+The Docs app's worker is required: without it, generations stay in "Waiting for a worker…".
 
 ### Stopping
 
@@ -286,17 +302,18 @@ Set the four `LANGFUSE_*` variables and `PLAIN_TELEMETRY_BACKENDS=["native","lan
 
 ### 10. Evaluate and optimize the programs
 
-These commands call the real model and read `GEMINI_API_KEY` from `.env`:
+Until the Tuning app's UI arrives (R4 and R5), the pipeline runs from the command line. These commands call the real model and read `GEMINI_API_KEY` from `tuning_app/.env`:
 
 ```bash
 # Score a program version on the dev set
-uv run --env-file .env python -m dspy_pipeline.optimize evaluate --version baseline
+uv run --directory tuning_app --env-file .env python -m dspy_pipeline.optimize evaluate --version baseline
 
 # Optimize EnrichOperations on the train set and save a new version
-uv run --group optimize --env-file .env python -m dspy_pipeline.optimize optimize --version v1
+# (MIPROv2 needs the optional optimize group: uv sync --all-packages --group optimize)
+uv run --directory tuning_app --env-file .env python -m dspy_pipeline.optimize optimize --version v1
 
 # Turn 👎 feedback with comments into dataset candidates to review by hand
-uv run --env-file .env python -m dspy_pipeline.optimize export-feedback --output candidates.jsonl
+uv run --directory tuning_app --env-file .env python -m dspy_pipeline.optimize export-feedback --output candidates.jsonl
 ```
 
 Each prints a JSON report. To promote a version, commit its files in `artifacts/programs/` and set `PLAIN_LLM_PROGRAM_VERSION`. The same commands run on GitHub from the **evals** workflow (Actions → evals → Run workflow), which needs a `GEMINI_API_KEY` repository secret.
@@ -309,74 +326,51 @@ Click **Toggle theme** in the header. The choice is remembered in your browser. 
 
 ```
 docs-to-ui/
-├── app/
-│   ├── settings.py              Installed packages, middleware, job schedule, Langfuse env mapping
-│   ├── urls.py                  Root router: assets, generations, traces, home
-│   ├── llm/                     Plain-free: importable by the optimization pipeline
-│   │   ├── schemas.py           Pydantic contracts: ApiSurface, Operation, DocPage, ...
-│   │   ├── signatures.py        DSPy signatures (EnrichOperations, WriteOverview, judge, ...)
-│   │   ├── batching.py          Packing operations into batches under a token budget
-│   │   ├── generator.py         Concurrent enrichment, retries, partial failure, overview, merge
-│   │   ├── merge.py             Dropping IDs the LLM invented
-│   │   ├── docpage.py           Pages and overviews without the LLM
-│   │   ├── lm.py                Gemini or DummyLM
-│   │   └── artifacts.py         Saving and loading versioned programs
-│   ├── sources/                 Plain package: turning input into an ApiSurface
-│   │   ├── bundle.py            SourceFile, SourceBundle, file manifest
-│   │   ├── archive.py           The safe in-memory zip reader
-│   │   ├── registry.py          Enabled adapters, detection, per-adapter file selection
-│   │   └── adapters/            base.py (protocol), openapi.py, python.py
-│   ├── generations/             Plain package: the product loop
-│   │   ├── models.py            Generation and Feedback
-│   │   ├── pipeline.py          Create, enqueue, claim and run generations
-│   │   ├── jobs.py              GenerateDocJob, MirrorFeedbackJob
-│   │   ├── forms.py             Source and feedback forms
-│   │   ├── presentation.py      View models for pages, status and errors
-│   │   ├── markdown.py          Markdown rendering and nh3 sanitizing
-│   │   ├── export.py            Self-contained HTML export
-│   │   └── views.py, urls.py    Home, detail, status, regenerate, feedback, exports
-│   ├── telemetry/               Plain package: the only code that knows trace backends
-│   │   ├── config.py            ready(): tracer provider, baggage, backends, DSPy instrumentation
-│   │   ├── api.py               What business code uses: trace context, spans, trace_url, feedback
-│   │   ├── otlp.py              Langfuse OTLP endpoint and auth
-│   │   └── backends/            base.py (protocol), native.py, langfuse.py
-│   ├── traces/                  Plain package: native span store and viewer
-│   │   ├── models.py            TraceSpan
-│   │   ├── exporter.py          PostgresSpanExporter (raw psycopg, never raises)
-│   │   ├── queries.py           Trace list and trace spans
-│   │   ├── presentation.py      Waterfall, span types, LLM call view
-│   │   ├── jobs.py              PruneTracesJob
-│   │   └── views.py, urls.py    /traces pages and the span panel
-│   ├── templates/
-│   │   ├── base.html            App shell
-│   │   └── elements/            doc.*, traces.* and app-shell components, one per file
-│   └── assets/
-│       ├── css/tokens.css       Generated from the design package; never edit by hand
-│       ├── css/components.css   Component styles (tokens only)
-│       ├── js/docpage.js        Doc-page interactivity, also inlined into exports
-│       └── js/app.js            Theme toggle and source form
-├── artifacts/programs/          Versioned program artifacts (baseline committed)
-├── dspy_pipeline/
-│   ├── datasets/{openapi,python}/{train,dev}.jsonl
-│   ├── metrics/                 enrich.py (the SPEC §13 metric), extract.py
-│   └── optimize.py              optimize | evaluate | export-feedback
+├── pyproject.toml               uv workspace root: members and shared dev tooling
+├── shared/                      The d2u library (workspace member)
+│   └── src/d2u/
+│       ├── schemas/             Pydantic contracts: ApiSurface, Operation, DocPage, ...
+│       ├── generation/          Batching, merging, pages without the LLM (Plain-free)
+│       ├── llm/                 v6 DSPy programs, generator and artifacts (until R2)
+│       ├── sources/             Bundles, the safe zip reader, adapters (OpenAPI, Python), registry
+│       ├── generations/         Plain package: Generation and Feedback models and settings
+│       ├── telemetry/           Plain package: tracer provider, backends, api, MirrorFeedbackJob
+│       ├── traces/              Plain package: TraceSpan, exporter, viewer, PruneTracesJob
+│       └── ui/                  Plain package: tokens, component CSS, JS, shared elements
+├── docs_app/                    The Docs app (Plain project "docs")
+│   ├── pyproject.toml           Dependencies, dev worker, test paths
+│   ├── .env.example, .env.test
+│   └── app/
+│       ├── settings.py, urls.py
+│       ├── templates/           App shell and app-specific elements
+│       └── generate/            Form, pipeline, GenerateDocJob, views, export, presentation
+├── tuning_app/                  The Tuning app (Plain project "tuning")
+│   ├── pyproject.toml           Dependencies (DSPy), optional optimize group, test paths
+│   ├── .env.example, .env.test
+│   ├── app/
+│   │   ├── settings.py, urls.py Every route under /tuning/
+│   │   ├── templates/           App shell
+│   │   └── dashboard/           Placeholder dashboard (R4 builds the real UI)
+│   └── dspy_pipeline/           Datasets, metrics and optimize.py (until the UI replaces it)
+├── artifacts/programs/          Versioned DSPy program artifacts (baseline committed)
 ├── design/docs-to-ui/           OpenDesign package: manifest, DESIGN.md, tokens, reference mockups
 ├── scripts/
 │   ├── install                  First-time setup
 │   └── sync_design.py           Validates the design package and copies its tokens
 ├── tests/
 │   ├── fixtures/                OpenAPI, Python and DummyLM fixtures, adapter contracts
-│   ├── unit/                    Mirrors app/, plus dspy_pipeline, scripts and CSS checks
-│   ├── integration/             Real Postgres: views, jobs, zips, feedback, traces, telemetry wiring
-│   └── e2e/                     Playwright journeys with a real server and worker
+│   ├── shared/                  Mirrors d2u (run by the Docs app's test suite)
+│   ├── docs_app/                Docs app unit and integration tests
+│   ├── tuning_app/              Tuning app and pipeline tests
+│   └── e2e/                     Playwright journeys against the Docs app
 ├── .github/workflows/           ci.yml (every push), evals.yml (manual)
 ├── Dockerfile                   base, test and prod stages
 ├── docker-compose.yml           Postgres for development
 ├── docker-compose.test.yml      The containerized suite
-├── .env.test                    Test settings: fake LLM, no trace export
 ├── SPEC.md, AGENTS.md           What to build, and how
 ├── DESIGN_BRIEF.md              Input for OpenDesign
-└── UAT_PLAN.md                  User acceptance test plan
+├── UAT_PLAN.md                  User acceptance test plan
+└── LICENSE.md                   BSD 2-Clause License
 ```
 
 ## How It Works
@@ -416,7 +410,7 @@ Archives are read with `zipfile` from the stored bytes and never extracted to di
 
 ### Tracing
 
-All instrumentation is OpenTelemetry: Plain's request, database and job spans, OpenInference spans for DSPy, and the job's own stage spans. At startup `app.telemetry` attaches to an existing tracer provider or installs one, adds a baggage processor that copies `docs.generation_id` and `docs.program_version` onto every span, and adds one processor per backend. The job starts its root span as a child of the stored request context, so request, job and LLM spans share one trace ID; an integration test enforces this. The native exporter writes batches with its own psycopg connection in one parameterized statement, truncates long attributes and never raises. Only `app/telemetry/` knows which backends exist.
+All instrumentation is OpenTelemetry: Plain's request, database and job spans, OpenInference spans for DSPy, and the job's own stage spans. At startup `d2u.telemetry` attaches to an existing tracer provider or installs one, adds a baggage processor that copies `docs.generation_id` and `docs.program_version` onto every span, and adds one processor per backend. The job starts its root span as a child of the stored request context, so request, job and LLM spans share one trace ID; an integration test enforces this. The native exporter writes batches with its own psycopg connection in one parameterized statement, truncates long attributes and never raises. Only `d2u.telemetry` knows which backends exist.
 
 ### Untrusted text
 
@@ -428,7 +422,7 @@ Component CSS uses only `var(--…)` tokens from `tokens.css`, with no raw color
 
 ### The optimization pipeline
 
-`dspy_pipeline/optimize.py` builds examples from the datasets exactly as the app would (the same adapters and batching), runs a program version, and scores each batch with the SPEC §13 metric:
+`tuning_app/dspy_pipeline/optimize.py` builds examples from the datasets exactly as the app would (the same adapters and batching), runs a program version, and scores each batch with the SPEC §13 metric:
 
 | Component | What it checks | Weight |
 | --- | --- | --- |
@@ -443,31 +437,32 @@ Component CSS uses only `var(--…)` tokens from `tokens.css`, with no raw color
 
 ## Code Quality
 
+Both apps' packages are named `app`, so checks run in three parts: the root run covers the shared library, scripts, the shared and E2E tests and all CSS/JS, and each app is checked from its own directory.
+
 Auto-fix lint and formatting:
 
 ```bash
-uv run plain fix
+uv run plain-code fix
+uv run --directory docs_app plain fix --skip-oxc . ../tests/docs_app
+uv run --directory tuning_app plain fix --skip-oxc . ../tests/tuning_app
 ```
 
-Check lint, formatting, types and annotation coverage without changing files:
-
-```bash
-uv run plain code check
-```
+Check lint, formatting, types and annotation coverage without changing files: run the same three commands with `check` (`plain-code check`, `plain code check`) in place of `fix`.
 
 Run Plain's preflight checks:
 
 ```bash
-uv run plain preflight
+uv run --directory docs_app plain preflight
+uv run --directory tuning_app plain preflight
 ```
 
-The design package, the generated `tokens.css`, the Markdown docs and test fixtures are excluded from formatting (see `[tool.plain.code]` in `pyproject.toml` and `.prettierignore`).
+The design package, the generated `tokens.css`, the Markdown docs and test fixtures are excluded from formatting (see `[tool.plain.code]` in each `pyproject.toml` and `.prettierignore`).
 
 ## Testing
 
 ### Installing test dependencies
 
-The unit and integration tests need only `uv sync` and a running Postgres. The end-to-end tests also need a Playwright browser and its system libraries (this step uses `sudo`):
+The unit and integration tests need only `uv sync --all-packages` and a running Postgres. The end-to-end tests also need a Playwright browser and its system libraries (this step uses `sudo`):
 
 ```bash
 uv run playwright install --with-deps chromium
@@ -475,16 +470,17 @@ uv run playwright install --with-deps chromium
 
 ### Running tests
 
-Unit and integration tests (the default suite):
+Unit and integration tests (the default suite). Tests run from an app directory because `plain.pytest` boots that app; the Docs app's suite also runs the shared library's tests:
 
 ```bash
-uv run pytest
+uv run --directory docs_app pytest
+uv run --directory tuning_app pytest
 ```
 
 End-to-end tests. Each test starts a real server and job worker against an isolated database and drives headless Chromium:
 
 ```bash
-uv run pytest -m e2e
+uv run --directory docs_app pytest -m e2e
 ```
 
 The full containerized suite, the same checks CI runs, with nothing installed locally except Docker:
@@ -493,16 +489,18 @@ The full containerized suite, the same checks CI runs, with nothing installed lo
 docker compose -f docker-compose.test.yml up --build --abort-on-container-exit
 ```
 
-Tests never call a real LLM (`.env.test` sets `LLM_MODEL=fake` with DummyLM fixtures) and can't reach the internet: `pytest-socket` blocks every connection except localhost.
+Tests never call a real LLM (`docs_app/.env.test` sets `LLM_MODEL=fake` with DummyLM fixtures) and can't reach the internet: `pytest-socket` blocks every connection except localhost.
 
 ### Test structure
 
 ```
-tests/unit/                Adapters (including the contract suite), zip safety, batching, merge,
-                           generator, artifacts round-trip, metrics, sanitizer, exporter mapping,
+tests/shared/              The d2u library: adapters (including the contract suite), zip safety,
+                           batching, merge, generator, artifacts round-trip, exporter mapping,
                            trace viewer logic, backend factory, design sync, CSS token rule
-tests/integration/         Job states and failures, zips, feedback and mirroring, native export
-                           and trace viewer, telemetry wiring (one trace ID), feedback export
+tests/docs_app/            Docs app: presentation, sanitizer, job states and failures, zips,
+                           feedback and mirroring, native export and trace viewer, telemetry
+                           wiring (one trace ID)
+tests/tuning_app/          Tuning app skeleton, pipeline metrics and datasets, feedback export
 tests/e2e/                 Paste, zip upload, progress, failure and retry, trace viewer,
                            example tabs and copy, feedback, exports opened from disk
 tests/fixtures/            OpenAPI (single and multi-file), a Python package, DummyLM responses,
@@ -511,37 +509,39 @@ tests/fixtures/            OpenAPI (single and multi-file), a Python package, Du
 
 ## Development Status
 
-All five milestones are implemented and covered by tests. Remaining work, and where the code knowingly differs from `SPEC.md`:
+v6 (milestones M1–M5) is complete, and v7 is in progress on the `redesign/v7` branch: R1 (the workspace restructure) is done, R2–R6 are planned. See the milestone table in [About This Project](#about-this-project) and `SPEC.md` §18.
 
-- **First promoted artifact (M4).** Only the unoptimized `baseline` is committed. Producing and promoting `v1` needs a real Gemini run: `optimize --version v1`, then commit the artifact.
-- **No `plain.toolbar`.** It depends on `plain-tailwind`, whose build hooks run even when Tailwind isn't used, which breaks `plain assets compile` and conflicts with the decided "no Tailwind" rule (D5).
-- **Extra model fields.** `Generation.trace_span_id` (so the job continues the request's trace) and `Generation.input_entry` with `SourceBundle.entry` (the chosen OpenAPI entry file).
+Known gaps and deliberate differences from `SPEC.md`:
+
+- **DSPy in the shared library until R2.** Because R1 doesn't change behavior, the Docs app still generates through DSPy, so the v6 DSPy code sits in `d2u.llm` and `dspy` is a `d2u` dependency. R2 removes both; after that, only the Tuning app uses DSPy.
+- **`optuna` is opt-in.** It's in the Tuning app's `optimize` group rather than its main dependencies: optuna brings numpy into the shared environment, and a half-imported numpy races with psycopg's numpy adapters when the Docs app's worker starts. MIPROv2 needs it; install it with `uv sync --all-packages --group optimize`.
+- **No pre-commit hook.** Plain's hook runs `plain` from the repository root, where there is no app. Run the checks in [Code Quality](#code-quality) instead.
+- **First promoted artifact (v6 M4).** Only the unoptimized `baseline` is committed. v7 replaces program artifacts with prompt versions in R2 and R5.
+- **No `plain.toolbar`.** It depends on `plain-tailwind`, whose build hooks break `plain assets compile` and conflict with the decided "no Tailwind" rule.
 - **Whole-page feedback** stores an empty `operation_id` instead of NULL, following Plain's rule against nullable text columns.
 - **URLs** follow Plain's default of no trailing slash (`/generations/1`, `/traces/<id>`).
-- **Unexpected job errors** are recorded as `validation_error`; the spec's error codes have no separate "internal error".
-- **`docker-compose.test.yml`** runs Postgres and one test container; the E2E tests start their own web server and worker instead of separate services.
 - **`ApiSurface`** has no description field, so an API's own description text isn't passed to the overview writer.
 
 ## Troubleshooting
 
 ### `connection refused` or database errors
 
-Postgres isn't running, or `DATABASE_URL` is missing from `.env`. Start it and apply the schema:
+Postgres isn't running, or `DATABASE_URL` is missing from the app's `.env`. Start it and apply the schema:
 
 ```bash
 docker compose up -d --wait
-uv run plain postgres sync
+uv run --directory docs_app plain postgres sync
 ```
 
 If `docker` isn't found in WSL, turn on WSL integration for your distribution in Docker Desktop's settings.
 
 ### A generation stays at "Waiting for a worker…"
 
-No job worker is running. `uv run plain dev` starts one; otherwise run `uv run plain jobs worker` in another terminal.
+No job worker is running. The Docs app's `plain dev` starts one; otherwise run `uv run --directory docs_app plain jobs worker` in another terminal.
 
 ### Generations fail with "Model provider error"
 
-Check that `GEMINI_API_KEY` is set in `.env` and valid, then click **Retry**. To try the app without a key, use the fake model described in [Configuration](#configuration).
+Check that `GEMINI_API_KEY` is set in `docs_app/.env` and valid, then click **Retry**. To try the app without a key, use the fake model described in [Configuration](#configuration).
 
 ### The app won't start: "The langfuse telemetry backend needs …"
 
@@ -563,7 +563,11 @@ Errors such as `Executable doesn't exist at .../ms-playwright/...` or `error whi
 uv run playwright install --with-deps chromium
 ```
 
-### CI fails with "stale: app/assets/css/tokens.css"
+### `plain` says "No such command" or can't find the app
+
+Plain looks for `./app`, so app commands must run inside an app directory: use `uv run --directory docs_app …` or `uv run --directory tuning_app …`. Only `plain-code`, `plain docs` and `plain agent install` work from the repository root.
+
+### CI fails with "stale: shared/src/d2u/ui/assets/css/tokens.css"
 
 The design package changed but the app's copy wasn't refreshed. Run `uv run python scripts/sync_design.py` and commit the result.
 
@@ -573,4 +577,4 @@ Files copied from Windows may have CRLF line endings. `.gitattributes` normalize
 
 ## License
 
-No license has been chosen yet, so all rights are reserved by the author. Add a `LICENSE` file before distributing the project.
+Docs-to-UI is licensed under the BSD 2-Clause License. See [LICENSE.md](LICENSE.md).

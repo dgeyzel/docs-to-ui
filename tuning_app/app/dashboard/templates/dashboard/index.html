@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block content %}
+<main class="app-container">
+    <section class="card" aria-labelledby="dashboard-heading">
+        <h1 class="card-title" id="dashboard-heading">Tuning</h1>
+        <p class="empty-state">
+            Model management, gold sets, evals and optimization arrive in milestones R4 and R5.
+            Traces from both apps are already available.
+        </p>
+        <div class="button-row">
+            <a class="button button-secondary" href="{{ url('traces:list') }}">View traces</a>
+        </div>
+    </section>
+</main>
+{% endblock %}

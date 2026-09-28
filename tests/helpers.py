@@ -3,7 +3,7 @@ import stat
 import zipfile
 from pathlib import Path
 
-from app.sources.bundle import SourceBundle, SourceFile
+from d2u.sources.bundle import SourceBundle, SourceFile
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 

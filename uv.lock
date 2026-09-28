@@ -2,6 +2,23 @@ version = 1
 revision = 3
 requires-python = "==3.14.*"
 
+[manifest]
+members = [
+    "d2u",
+    "docs",
+    "tuning",
+]
+
+[manifest.dependency-groups]
+dev = [
+    { name = "plain-code", specifier = ">=0.27.0" },
+    { name = "plain-dev" },
+    { name = "plain-pytest" },
+    { name = "playwright", specifier = ">=1.63.0" },
+    { name = "pytest-playwright", specifier = ">=0.9.0" },
+    { name = "pytest-socket", specifier = ">=0.8.1" },
+]
+
 [[package]]
 name = "aiohappyeyeballs"
 version = "2.7.1"
@@ -116,75 +133,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/a9/d2/f4d173e22df740bc3
 wheels = [
     { url = "https://files.pythonhosted.org/packages/12/b8/4bd346e22b28902df4d651910f5242c28d84e4a5c2435ca5c3f797ed7e2e/anyio-4.15.1-py3-none-any.whl", hash = "sha256:6152fdbbf9a77fdec97731721bebf7c4c44f7c29b424b0065826173efc7ed101", size = 132079, upload-time = "2026-09-05T10:42:37.923Z" },
 ]
-
-[[package]]
-name = "app"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "dspy" },
-    { name = "langfuse" },
-    { name = "markdown-it-py" },
-    { name = "nh3" },
-    { name = "openinference-instrumentation-dspy" },
-    { name = "opentelemetry-exporter-otlp-proto-http" },
-    { name = "opentelemetry-processor-baggage" },
-    { name = "plain" },
-    { name = "plain-assets" },
-    { name = "plain-elements" },
-    { name = "plain-htmx" },
-    { name = "plain-jobs" },
-    { name = "plain-postgres" },
-    { name = "plain-templates" },
-    { name = "psycopg", extra = ["binary"] },
-    { name = "pydantic" },
-    { name = "pyyaml" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "plain-code" },
-    { name = "plain-dev" },
-    { name = "plain-pytest" },
-    { name = "playwright" },
-    { name = "pytest-playwright" },
-    { name = "pytest-socket" },
-]
-optimize = [
-    { name = "optuna" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "dspy", specifier = ">=3.4.0" },
-    { name = "langfuse", specifier = ">=4.15.6" },
-    { name = "markdown-it-py", specifier = ">=4.2.0" },
-    { name = "nh3", specifier = ">=0.3.7" },
-    { name = "openinference-instrumentation-dspy", specifier = ">=0.1.45" },
-    { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.45.0" },
-    { name = "opentelemetry-processor-baggage", specifier = ">=0.66b0" },
-    { name = "plain" },
-    { name = "plain-assets", specifier = ">=0.3.0" },
-    { name = "plain-elements", specifier = ">=0.12.0" },
-    { name = "plain-htmx", specifier = ">=0.22.0" },
-    { name = "plain-jobs", specifier = ">=0.58.0" },
-    { name = "plain-postgres", specifier = ">=0.122.0" },
-    { name = "plain-templates", specifier = ">=0.3.0" },
-    { name = "psycopg", extras = ["binary"], specifier = ">=3.3.6" },
-    { name = "pydantic", specifier = ">=2.13.5" },
-    { name = "pyyaml", specifier = ">=6.0.3" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "plain-code", specifier = ">=0.27.0" },
-    { name = "plain-dev" },
-    { name = "plain-pytest" },
-    { name = "playwright", specifier = ">=1.63.0" },
-    { name = "pytest-playwright", specifier = ">=0.9.0" },
-    { name = "pytest-socket", specifier = ">=0.8.1" },
-]
-optimize = [{ name = "optuna", specifier = ">=5.0.0" }]
 
 [[package]]
 name = "attrs"
@@ -437,6 +385,47 @@ wheels = [
 ]
 
 [[package]]
+name = "d2u"
+version = "0.1.0"
+source = { editable = "shared" }
+dependencies = [
+    { name = "dspy" },
+    { name = "langfuse" },
+    { name = "openinference-instrumentation-dspy" },
+    { name = "opentelemetry-exporter-otlp-proto-http" },
+    { name = "opentelemetry-processor-baggage" },
+    { name = "plain" },
+    { name = "plain-assets" },
+    { name = "plain-elements" },
+    { name = "plain-htmx" },
+    { name = "plain-jobs" },
+    { name = "plain-postgres" },
+    { name = "plain-templates" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "dspy", specifier = ">=3.4.0" },
+    { name = "langfuse", specifier = ">=4.15.6" },
+    { name = "openinference-instrumentation-dspy", specifier = ">=0.1.45" },
+    { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.45.0" },
+    { name = "opentelemetry-processor-baggage", specifier = ">=0.66b0" },
+    { name = "plain" },
+    { name = "plain-assets", specifier = ">=0.3.0" },
+    { name = "plain-elements", specifier = ">=0.12.0" },
+    { name = "plain-htmx", specifier = ">=0.22.0" },
+    { name = "plain-jobs", specifier = ">=0.58.0" },
+    { name = "plain-postgres", specifier = ">=0.122.0" },
+    { name = "plain-templates", specifier = ">=0.3.0" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.3.6" },
+    { name = "pydantic", specifier = ">=2.13.5" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+]
+
+[[package]]
 name = "diskcache"
 version = "5.6.3"
 source = { registry = "https://pypi.org/simple" }
@@ -452,6 +441,23 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/fc/f8/98eea607f65de6527f8a2e8885fc8015d3e6f5775df186e443e0964a11c3/distro-1.9.0.tar.gz", hash = "sha256:2fa77c6fd8940f116ee1d6b94a2f90b13b5ea8d019b98bc8bafdcabcdd9bdbed", size = 60722, upload-time = "2023-12-24T09:54:32.31Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/12/b3/231ffd4ab1fc9d679809f356cebee130ac7daa00d6d6f3206dd4fd137e9e/distro-1.9.0-py3-none-any.whl", hash = "sha256:7bffd925d65168f85027d8da9af6bddab658135b840670a223589bc0c8ef02b2", size = 20277, upload-time = "2023-12-24T09:54:30.421Z" },
+]
+
+[[package]]
+name = "docs"
+version = "0.1.0"
+source = { virtual = "docs_app" }
+dependencies = [
+    { name = "d2u" },
+    { name = "markdown-it-py" },
+    { name = "nh3" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "d2u", editable = "shared" },
+    { name = "markdown-it-py", specifier = ">=4.2.0" },
+    { name = "nh3", specifier = ">=0.3.7" },
 ]
 
 [[package]]
@@ -2107,6 +2113,29 @@ sdist = { url = "https://files.pythonhosted.org/packages/0d/ea/b2a5bd54b28a324da
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a7/03/921a3d3c75785aca9ebfbfcabfbc3a1be12e2ab5265deb026d55a5a3f83e/tqdm-4.70.1-py3-none-any.whl", hash = "sha256:c293e525e6fef9c20e8728fd4612df02a0aa31bb5fe91ecd93e123b1b7bffa73", size = 80199, upload-time = "2026-09-11T07:25:14.599Z" },
 ]
+
+[[package]]
+name = "tuning"
+version = "0.1.0"
+source = { virtual = "tuning_app" }
+dependencies = [
+    { name = "d2u" },
+    { name = "dspy" },
+]
+
+[package.dev-dependencies]
+optimize = [
+    { name = "optuna" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "d2u", editable = "shared" },
+    { name = "dspy", specifier = ">=3.4.0" },
+]
+
+[package.metadata.requires-dev]
+optimize = [{ name = "optuna", specifier = ">=5.0.0" }]
 
 [[package]]
 name = "ty"

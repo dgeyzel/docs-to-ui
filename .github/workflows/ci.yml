@@ -31,23 +31,33 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v6
       - name: Install dependencies
-        run: uv sync
-      - name: Lint, format and type check
-        run: uv run plain code check
+        run: uv sync --all-packages
+      - name: Lint, format and type check (shared library, scripts, CSS/JS)
+        run: uv run plain-code check
+      - name: Lint, format and type check (Docs app)
+        run: uv run --directory docs_app plain code check --skip-oxc . ../tests/docs_app
+      - name: Lint, format and type check (Tuning app)
+        run: uv run --directory tuning_app plain code check --skip-oxc . ../tests/tuning_app
       - name: Design tokens are in sync
         run: uv run python scripts/sync_design.py --check
       - name: Migrations are up to date
-        run: uv run plain migrations create --check
+        run: |
+          uv run --directory docs_app plain migrations create --check
+          uv run --directory tuning_app plain migrations create --check
       - name: Schema
-        run: uv run plain postgres sync
+        run: uv run --directory docs_app plain postgres sync
       - name: Preflight
-        run: uv run plain preflight
-      - name: Unit and integration tests (includes the artifact round-trip)
-        run: uv run pytest
+        run: |
+          uv run --directory docs_app plain preflight
+          uv run --directory tuning_app plain preflight
+      - name: Shared library and Docs app tests (includes the artifact round-trip)
+        run: uv run --directory docs_app pytest
+      - name: Tuning app tests
+        run: uv run --directory tuning_app pytest
       - name: Install Playwright browser
         run: uv run playwright install --with-deps chromium
       - name: E2E tests
-        run: uv run pytest -m e2e
+        run: uv run --directory docs_app pytest -m e2e
 
   image:
     runs-on: ubuntu-latest

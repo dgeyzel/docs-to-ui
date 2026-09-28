@@ -1,5 +1,5 @@
-# Plain temporary files
-/.plain
+# Plain temporary files (one per app)
+.plain/
 
 # Python files
 __pycache__
@@ -7,10 +7,10 @@ __pycache__
 # Virtual environment
 /.venv
 
-# env files
-/.env*
-!/.env.example
-!/.env.test
+# env files (one set per app)
+.env*
+!.env.example
+!.env.test
 
 # Agents
 /.claude/skills/plain-*

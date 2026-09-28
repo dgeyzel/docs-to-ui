@@ -1,28 +1,8 @@
-[project]
-name = "app"
-version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
-requires-python = "~=3.14.0"
-dependencies = [
-  "dspy>=3.4.0",
-  "langfuse>=4.15.6",
-  "markdown-it-py>=4.2.0",
-  "nh3>=0.3.7",
-  "openinference-instrumentation-dspy>=0.1.45",
-  "opentelemetry-exporter-otlp-proto-http>=1.45.0",
-  "opentelemetry-processor-baggage>=0.66b0",
-  "plain",
-  "plain-assets>=0.3.0",
-  "plain-elements>=0.12.0",
-  "plain-htmx>=0.22.0",
-  "plain-jobs>=0.58.0",
-  "plain-postgres>=0.122.0",
-  "plain-templates>=0.3.0",
-  "psycopg[binary]>=3.3.6",
-  "pydantic>=2.13.5",
-  "pyyaml>=6.0.3",
-]
+# uv workspace root (virtual): the shared d2u library and the two Plain apps.
+# Plain resolves its app as ./app, so app commands run inside docs_app/ or
+# tuning_app/ (see AGENTS.md §1).
+[tool.uv.workspace]
+members = ["shared", "docs_app", "tuning_app"]
 
 [dependency-groups]
 dev = [
@@ -33,24 +13,21 @@ dev = [
   "pytest-playwright>=0.9.0",
   "pytest-socket>=0.8.1",
 ]
-optimize = ["optuna>=5.0.0"]
 
 [tool.plain.code]
-# The design package is a hand-copied input, tokens.css is a generated copy of
-# it, and the Markdown docs are human-owned: formatters must not rewrite them.
-exclude = ["design", "app/assets/css/tokens.css", "*.md", "tests/fixtures"]
-
-[tool.plain.dev.run]
-worker = { cmd = "plain jobs worker --reload --stats-every 0 --max-processes 2" }
+# `uv run plain-code check` from the root covers the shared library, scripts,
+# shared and E2E tests, and all CSS/JS. Each app is type-checked from its own
+# directory, since both apps' packages are named `app` (AGENTS.md §1).
+exclude = [
+  "design",
+  "shared/src/d2u/ui/assets/css/tokens.css",
+  "*.md",
+  "tests/fixtures",
+  "docs_app",
+  "tuning_app",
+  "tests/docs_app",
+  "tests/tuning_app",
+]
 
 [tool.plain.code.oxc]
 version = "1.84.0"
-
-[tool.plain.tailwind]
-version = "4.3.3"
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-# Fixture inputs include test_*.py files that are data, not tests.
-norecursedirs = [".*", "__pycache__", "fixtures"]
-addopts = "-m 'not e2e' --strict-markers --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,::1,localhost"
-markers = ["e2e: end-to-end browser tests (run with -m e2e)"]

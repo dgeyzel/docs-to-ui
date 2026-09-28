@@ -1,5 +1,5 @@
 # Inputs and generated files that formatters must not rewrite.
 design/
-app/assets/css/tokens.css
+shared/src/d2u/ui/assets/css/tokens.css
 *.md
 tests/fixtures/

@@ -29,10 +29,10 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v6
       - name: Install dependencies
-        run: uv sync --group optimize
+        run: uv sync --all-packages --group optimize
       - name: Run
         run: >
-          uv run python -m dspy_pipeline.optimize ${{ inputs.command }}
+          uv run --directory tuning_app python -m dspy_pipeline.optimize ${{ inputs.command }}
           --version "${{ inputs.version }}"
           --language "${{ inputs.language }}"
           | tee report.json

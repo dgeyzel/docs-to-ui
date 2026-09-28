@@ -1,0 +1,35 @@
+[project]
+name = "tuning"
+version = "0.1.0"
+description = "Docs-to-UI Tuning app: evaluates and tunes the Docs app."
+requires-python = "~=3.14.0"
+license = "BSD-2-Clause"
+dependencies = ["d2u", "dspy>=3.4.0"]
+
+[dependency-groups]
+# MIPROv2 needs optuna. It is opt-in because optuna brings numpy into the
+# shared workspace environment, and a half-imported numpy races with psycopg's
+# numpy adapters when the Docs app's worker starts.
+optimize = ["optuna>=5.0.0"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+d2u = { workspace = true }
+
+[tool.plain.code]
+# Run from this directory on the app and its tests, with --skip-oxc: all
+# CSS/JS lives in shared/ and is checked from the root (AGENTS.md §1).
+exclude = ["**/design/**", "**/d2u/ui/assets/css/tokens.css", "*.md", "**/tests/fixtures/**"]
+
+[tool.ty.environment]
+# Resolve repository-level modules (tests.helpers, scripts.sync_design).
+extra-paths = [".."]
+
+[tool.pytest.ini_options]
+testpaths = ["../tests/tuning_app"]
+pythonpath = [".."]
+norecursedirs = [".*", "__pycache__", "fixtures"]
+addopts = "-m 'not e2e' --strict-markers --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,::1,localhost"
+markers = ["e2e: end-to-end browser tests (run with -m e2e)"]

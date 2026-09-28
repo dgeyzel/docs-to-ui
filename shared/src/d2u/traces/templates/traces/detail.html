@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% use_elements %}
+
+{% block title %}Trace {{ trace_id[:8] }} · Docs-to-UI{% endblock %}
+
+{% block content %}
+<main class="app-container" id="trace-content">
+    {% if waiting %}
+    <section
+        class="card"
+        aria-live="polite"
+        hx-get="{{ url('traces:detail', trace_id=trace_id) }}"
+        hx-trigger="load delay:2s"
+        hx-select="#trace-content"
+        hx-target="#trace-content"
+        hx-swap="outerHTML"
+    >
+        <h1 class="card-title">Trace <code>{{ trace_id }}</code></h1>
+        <p class="empty-state">Waiting for spans… They are exported every few seconds.</p>
+    </section>
+    {% else %}
+    <section class="card" aria-labelledby="trace-heading">
+        <h1 class="card-title" id="trace-heading">Trace <code>{{ trace_id }}</code></h1>
+        <p class="meta-text">
+            {{ totals.span_count }} spans · {{ totals.llm_calls }} LLM calls ·
+            {{ totals.total_tokens }} tokens{% if totals.errors %} · {{ totals.errors }} errors{% endif %}
+            {% if generation_id %} · {% if generation_url(generation_id) %}<a href="{{ generation_url(generation_id) }}">Generation #{{ generation_id }}</a>{% else %}Generation #{{ generation_id }}{% endif %}{% endif %}
+        </p>
+        <traces.Waterfall rows={rows} trace_id={trace_id} />
+        <p class="hint">Spans are exported in batches every few seconds. Reload to see spans from work that is still finishing.</p>
+    </section>
+    <section class="card" aria-labelledby="span-detail-heading">
+        <h2 class="card-title" id="span-detail-heading">Span detail</h2>
+        <div id="span-detail">
+            <p class="empty-state">Select a span to see its attributes.</p>
+        </div>
+    </section>
+    {% endif %}
+</main>
+{% endblock %}

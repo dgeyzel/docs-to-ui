@@ -1,0 +1,29 @@
+[project]
+name = "d2u"
+version = "0.1.0"
+description = "Shared library for the Docs and Tuning apps: contracts, parsers, generation, telemetry, traces and UI."
+requires-python = "~=3.14.0"
+license = "BSD-2-Clause"
+dependencies = [
+  # DSPy is here only until milestone R2 moves the Docs app to direct LiteLLM
+  # calls; after that it belongs to the Tuning app alone (SPEC §15).
+  "dspy>=3.4.0",
+  "langfuse>=4.15.6",
+  "openinference-instrumentation-dspy>=0.1.45",
+  "opentelemetry-exporter-otlp-proto-http>=1.45.0",
+  "opentelemetry-processor-baggage>=0.66b0",
+  "plain",
+  "plain-assets>=0.3.0",
+  "plain-elements>=0.12.0",
+  "plain-htmx>=0.22.0",
+  "plain-jobs>=0.58.0",
+  "plain-postgres>=0.122.0",
+  "plain-templates>=0.3.0",
+  "psycopg[binary]>=3.3.6",
+  "pydantic>=2.13.5",
+  "pyyaml>=6.0.3",
+]
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"

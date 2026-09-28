@@ -16,7 +16,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DESIGN_DIR = REPO_ROOT / "design" / "docs-to-ui"
-ASSETS_DIR = REPO_ROOT / "app" / "assets"
+ASSETS_DIR = REPO_ROOT / "shared" / "src" / "d2u" / "ui" / "assets"
 MANIFEST_SCHEMA_VERSION = "od-design-system-project/v1"
 
 # DESIGN_BRIEF.md §6.1: OpenDesign's shared token contract.

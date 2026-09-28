@@ -1,0 +1,37 @@
+[project]
+name = "docs"
+version = "0.1.0"
+description = "Docs-to-UI Docs app: turns source code into documentation pages."
+requires-python = "~=3.14.0"
+license = "BSD-2-Clause"
+dependencies = ["d2u", "markdown-it-py>=4.2.0", "nh3>=0.3.7"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+d2u = { workspace = true }
+
+[tool.plain.dev.run]
+worker = { cmd = "plain jobs worker --reload --stats-every 0 --max-processes 2" }
+
+[tool.plain.code.oxc]
+version = "1.84.0"
+[tool.plain.code]
+# Run from this directory on the app and its tests, with --skip-oxc: all
+# CSS/JS lives in shared/ and is checked from the root (AGENTS.md §1).
+exclude = ["**/design/**", "**/d2u/ui/assets/css/tokens.css", "*.md", "**/tests/fixtures/**"]
+
+[tool.ty.environment]
+# Resolve repository-level modules (tests.helpers, scripts.sync_design).
+extra-paths = [".."]
+
+[tool.pytest.ini_options]
+# The Docs app hosts the shared library's tests too: DB-backed shared tests
+# need a Plain app with the d2u packages installed.
+testpaths = ["../tests/shared", "../tests/docs_app", "../tests/e2e"]
+pythonpath = [".."]
+# Fixture inputs include test_*.py files that are data, not tests.
+norecursedirs = [".*", "__pycache__", "fixtures"]
+addopts = "-m 'not e2e' --strict-markers --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,::1,localhost"
+markers = ["e2e: end-to-end browser tests (run with -m e2e)"]

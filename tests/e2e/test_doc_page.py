@@ -2,12 +2,12 @@ import time
 from pathlib import Path
 
 import pytest
+from d2u.generation.docpage import build_unenriched_docpage
+from d2u.generations.models import Feedback, Generation
+from d2u.schemas.docpage import DocPage, Example, OperationDocs
+from d2u.sources.adapters.openapi import OpenApiAdapter
 from playwright.sync_api import Locator, Page, expect
 
-from app.generations.models import Feedback, Generation
-from app.llm.docpage import build_unenriched_docpage
-from app.llm.schemas import DocPage, Example, OperationDocs
-from app.sources.adapters.openapi import OpenApiAdapter
 from tests.helpers import FIXTURES_DIR, bundle_of, read_fixture, zip_dir
 
 pytestmark = pytest.mark.e2e
