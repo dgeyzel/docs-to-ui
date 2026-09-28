@@ -1,12 +1,12 @@
 import pytest
 from d2u.schemas.docpage import (
     ApiSurface,
-    BatchEnrichment,
     Example,
     Operation,
     OperationDocs,
     Param,
 )
+from d2u.schemas.generated import GeneratedDocs
 from dspy.utils.dummies import DummyLM
 
 from dspy_pipeline.metrics.enrich import (
@@ -87,7 +87,7 @@ def test_invalid_output_scores_zero_regardless_of_judge() -> None:
 
 
 def test_perfect_output_scores_one() -> None:
-    result = BatchEnrichment(
+    result = GeneratedDocs(
         operations=[
             docs(
                 "GET /pets/{id}",
@@ -162,7 +162,7 @@ def test_metric_returns_pass_fail_while_bootstrapping() -> None:
     metric = make_enrich_metric(fixed_judge(1.0, 1.0))
     example = dspy.Example(operations=OPS).with_inputs("operations")
     good = dspy.Prediction(
-        result=BatchEnrichment(operations=[docs("GET /pets/{id}"), docs("POST /pets")])
+        result=GeneratedDocs(operations=[docs("GET /pets/{id}"), docs("POST /pets")])
     )
     bad = dspy.Prediction(result={"broken": True})
 
@@ -179,7 +179,7 @@ def test_llm_judge_normalizes_scores() -> None:
         ]
     )
     judge = llm_judge(lm)
-    documentation = BatchEnrichment(operations=[docs("POST /pets")])
+    documentation = GeneratedDocs(operations=[docs("POST /pets")])
 
     assert judge(OPS, documentation) == JudgeVerdict(consistency=1.0, prose=1.0)
     assert judge(OPS, documentation) == JudgeVerdict(consistency=0.5, prose=0.0)

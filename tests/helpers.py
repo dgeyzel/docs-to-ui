@@ -56,3 +56,15 @@ def zip_dir(directory: Path, *, prefix: str = "") -> bytes:
             if path.is_file()
         }
     )
+
+
+def activate_fake_model() -> None:
+    """Register the fake model (if needed) and make it the active model."""
+    from d2u.registry.models import ModelConfig, RuntimeSettings
+
+    model, _ = ModelConfig.query.get_or_create(
+        name="Fake", defaults={"litellm_model": "fake", "max_input_tokens": 1_000_000}
+    )
+    runtime = RuntimeSettings.load()
+    runtime.active_model = model
+    runtime.update()

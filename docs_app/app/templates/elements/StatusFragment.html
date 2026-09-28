@@ -18,7 +18,7 @@
     <div class="progress">
         <div class="progress-info">
             <span>{{ status.progress_label }}</span>
-            {% if status.batches_total %}<span>{{ status.percent }}%</span>{% endif %}
+            {% if status.total %}<span>{{ status.percent }}%</span>{% endif %}
         </div>
         <div
             class="progress-bar"

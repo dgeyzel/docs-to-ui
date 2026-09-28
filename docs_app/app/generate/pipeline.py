@@ -3,28 +3,39 @@
 import hashlib
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import cache
 from pathlib import Path
 
 import psycopg
+from d2u.generation.client import FakeResponses, Usage
+from d2u.generation.exceptions import (
+    GenerationFailedError,
+    GenerationTimeoutError,
+    LLMConfigurationError,
+    OutputValidationError,
+    ProviderError,
+)
+from d2u.generation.strategies import (
+    GenerationConfig,
+    GenerationResult,
+    generate_hybrid,
+    generate_llm,
+    generate_parser,
+)
 from d2u.generations.models import (
     ErrorCode,
     Generation,
     GenerationStage,
     GenerationStatus,
     InputOrigin,
+    Strategy,
 )
-from d2u.llm.artifacts import Programs, load_programs
-from d2u.llm.exceptions import (
-    ArtifactNotFoundError,
-    GenerationFailedError,
-    GenerationTimeoutError,
-    LLMConfigurationError,
-)
-from d2u.llm.generator import GeneratorConfig, generate_docpage
-from d2u.llm.lm import build_lm
+from d2u.registry.lookups import active_model, require_active_prompt
+from d2u.registry.models import PromptVersion
+from d2u.schemas.docpage import ApiSurface
 from d2u.sources.adapters.base import LanguageAdapter
 from d2u.sources.archive import ArchiveLimits, read_zip
 from d2u.sources.bundle import (
@@ -38,6 +49,7 @@ from d2u.sources.registry import detect, enabled_adapters, get_adapter, select_f
 from d2u.telemetry.api import (
     TraceContext,
     current_trace_context,
+    generation_baggage,
     generation_span,
     stage_span,
     tag_current_span,
@@ -46,9 +58,8 @@ from plain.runtime import APP_PATH, settings
 
 logger = logging.getLogger(__name__)
 
-# Repository root: docs_app/app is APP_PATH. Artifacts and test fixtures live there.
+# Repository root: docs_app/app is APP_PATH. Test fixtures live there.
 REPO_ROOT = APP_PATH.parent.parent
-ARTIFACTS_ROOT = REPO_ROOT / "artifacts" / "programs"
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +71,7 @@ class SubmittedInput:
     data: bytes
     language: str
     entry: str = ""
+    strategy: Strategy = Strategy.LLM
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +100,7 @@ def create_generation(submitted: SubmittedInput) -> Generation:
         input_origin=submitted.origin.value,
         input_filename=submitted.filename,
         input_entry=submitted.entry,
+        strategy=submitted.strategy.value,
         input_blob=submitted.data,
         input_sha256=hashlib.sha256(submitted.data).hexdigest(),
         input_bytes=len(submitted.data),
@@ -108,6 +121,7 @@ def regenerate(original: Generation) -> Generation:
             data=bytes(original.input_blob),
             language=original.language,
             entry=original.input_entry,
+            strategy=Strategy(original.strategy),
         )
     )
 
@@ -133,16 +147,18 @@ def claim_generation(generation_id: int) -> Generation | None:
     """Move a pending generation to running; None if it isn't pending.
 
     The status check and update are one statement, so running the job twice
-    never processes a generation twice.
+    never processes a generation twice. The active model is recorded now, so
+    a later change in the Tuning app doesn't affect a running generation.
     """
+    model = active_model()
     claimed = Generation.query.filter(
         id=generation_id, status=GenerationStatus.PENDING.value
     ).update(
         status=GenerationStatus.RUNNING.value,
         stage=GenerationStage.BUNDLE.value,
         started_at=datetime.now(UTC),
-        program_version=settings.LLM_PROGRAM_VERSION,
-        model=settings.LLM_MODEL,
+        llm_model=model,
+        model=model.name if model else "",
     )
     if claimed == 0:
         return None
@@ -173,84 +189,165 @@ def run_claimed_generation(generation: Generation) -> None:
     with generation_span(
         name="generate",
         generation_id=generation.id,
-        program_version=generation.program_version,
+        prompt_version="",
+        model=generation.model,
         parent=parent,
     ):
         run_generation(generation)
 
 
+def prompt_label(prompt: PromptVersion) -> str:
+    """How a prompt version is shown and traced, e.g. `openapi/llm/baseline`."""
+    return f"{prompt.language}/{prompt.strategy}/{prompt.version}"
+
+
 def run_generation(generation: Generation) -> None:
-    """Bundle, extract, enrich, write the overview and merge; record the outcome.
+    """Bundle the input, run the generation's strategy, and record the outcome.
 
     Expected failures are recorded as a failed status with an error code.
     """
-    deadline = time.monotonic() + settings.GENERATIONS_TIMEOUT_S
+    config = GenerationConfig(
+        max_concurrency=settings.GENERATIONS_MAX_CONCURRENCY,
+        deadline=time.monotonic() + settings.GENERATIONS_TIMEOUT_S,
+        fake=fake_responses(),
+    )
     try:
         with stage_span(GenerationStage.BUNDLE.value):
             _set_stage(generation, GenerationStage.BUNDLE)
             prepared = build_bundle(generation, adapters=available_adapters())
-            adapter = prepared.adapter
             generation.input_manifest = prepared.manifest.model_dump(mode="json")
-            generation.update(fields=["input_manifest"])
-
-        with stage_span(GenerationStage.EXTRACT.value) as span:
-            _set_stage(generation, GenerationStage.EXTRACT)
-            surface = adapter.extract(prepared.bundle)
-            span.set_attribute("docs.operations.total", len(surface.operations))
-        generation.language = adapter.name
-        generation.update(fields=["language"])
-
-        _set_stage(generation, GenerationStage.ENRICH)
-        result = generate_docpage(
-            surface=surface,
-            group_of=adapter.group_key,
-            display_name=adapter.display_name,
-            lm=build_lm(
-                model=settings.LLM_MODEL,
-                thinking_level=settings.LLM_THINKING_LEVEL,
-                fake_responses_path=_fake_responses_path(),
-            ),
-            programs=_programs(generation.program_version),
-            config=GeneratorConfig(
-                token_budget=settings.LLM_BATCH_TOKEN_BUDGET,
-                max_operations=settings.LLM_BATCH_MAX_OPERATIONS,
-                max_concurrency=settings.LLM_MAX_CONCURRENCY,
-                deadline=deadline,
-            ),
-            on_progress=lambda done, total: _set_progress(generation, done, total),
-            on_stage=lambda stage: _set_stage(generation, GenerationStage(stage)),
-        )
+            generation.language = prepared.adapter.name
+            generation.update(fields=["input_manifest", "language"])
+        result = _run_strategy(generation, prepared, config)
     except InputError as exc:
-        mark_failed(
-            generation.id,
-            code=ErrorCode.INPUT_ERROR,
-            detail={"message": exc.message, "path": exc.path, "line": exc.line},
+        _fail(
+            generation, ErrorCode.INPUT_ERROR, exc.message, path=exc.path, line=exc.line
         )
         return
     except GenerationTimeoutError as exc:
-        mark_failed(generation.id, code=ErrorCode.TIMEOUT, detail={"message": str(exc)})
+        _fail(generation, ErrorCode.TIMEOUT, str(exc))
         return
     except GenerationFailedError as exc:
         code = ErrorCode.PROVIDER_ERROR if exc.provider else ErrorCode.VALIDATION_ERROR
-        mark_failed(generation.id, code=code, detail={"message": str(exc)})
+        _fail(generation, code, str(exc))
         return
-    except (LLMConfigurationError, ArtifactNotFoundError) as exc:
+    except OutputValidationError as exc:
+        _fail(generation, ErrorCode.VALIDATION_ERROR, str(exc))
+        return
+    except ProviderError as exc:
+        _fail(generation, ErrorCode.PROVIDER_ERROR, str(exc))
+        return
+    except LLMConfigurationError as exc:
         logger.exception("Generation %s is misconfigured", generation.id)
-        mark_failed(
-            generation.id, code=ErrorCode.PROVIDER_ERROR, detail={"message": str(exc)}
-        )
+        _fail(generation, ErrorCode.PROVIDER_ERROR, str(exc))
         return
 
+    _record_usage(generation, result.usage)
     generation.doc_json = result.page.model_dump(mode="json")
     generation.status = GenerationStatus.SUCCEEDED.value
     generation.finished_at = datetime.now(UTC)
-    generation.update(fields=["doc_json", "status", "finished_at"])
-    logger.info(
-        "Generation %s succeeded (%s of %s batches failed)",
-        generation.id,
-        result.batches_failed,
-        result.batches_total,
+    generation.update(
+        fields=[
+            "doc_json",
+            "status",
+            "finished_at",
+            "input_tokens",
+            "output_tokens",
+            "cost_usd",
+            "latency_ms",
+        ]
     )
+    logger.info(
+        "Generation %s succeeded (%s of %s parts failed)",
+        generation.id,
+        result.parts_failed,
+        result.parts_total,
+    )
+
+
+def _run_strategy(
+    generation: Generation, prepared: PreparedInput, config: GenerationConfig
+) -> GenerationResult:
+    adapter = prepared.adapter
+    strategy = Strategy(generation.strategy)
+    on_progress = _progress_callback(generation)
+    on_stage = _stage_callback(generation)
+
+    if strategy == Strategy.PARSER:
+        surface = _extract(generation, prepared)
+        return generate_parser(
+            surface=surface,
+            group_of=adapter.group_key,
+            display_name=adapter.display_name,
+        )
+
+    if strategy == Strategy.LLM:
+        # Broken input fails here with a precise location, before any model call.
+        with stage_span("check"):
+            adapter.check_syntax(prepared.bundle)
+
+    if generation.llm_model is None:
+        raise LLMConfigurationError(
+            "No active model is set. Choose one in the Tuning app."
+        )
+    model = generation.llm_model.to_spec()
+    prompt = require_active_prompt(language=adapter.name, strategy=strategy.value)
+    generation.prompt_version = prompt
+    generation.prompt_label = prompt_label(prompt)
+    generation.update(fields=["prompt_version", "prompt_label"])
+
+    with generation_baggage(prompt_version=generation.prompt_label):
+        if strategy == Strategy.LLM:
+            return generate_llm(
+                source_files={file.path: file.text for file in prepared.bundle.files},
+                entry=adapter.entry_file(prepared.bundle),
+                language=adapter.name,
+                model=model,
+                prompt=prompt.to_spec(),
+                config=config,
+                on_progress=on_progress,
+                on_stage=on_stage,
+            )
+        surface = _extract(generation, prepared)
+        return generate_hybrid(
+            surface=surface,
+            group_of=adapter.group_key,
+            display_name=adapter.display_name,
+            model=model,
+            prompt=prompt.to_spec(),
+            config=config,
+            on_progress=on_progress,
+            on_stage=on_stage,
+        )
+
+
+def _extract(generation: Generation, prepared: PreparedInput) -> ApiSurface:
+    with stage_span(GenerationStage.EXTRACT.value) as span:
+        _set_stage(generation, GenerationStage.EXTRACT)
+        surface = prepared.adapter.extract(prepared.bundle)
+        span.set_attribute("docs.operations.total", len(surface.operations))
+    return surface
+
+
+def _fail(
+    generation: Generation,
+    code: ErrorCode,
+    message: str,
+    *,
+    path: str | None = None,
+    line: int | None = None,
+) -> None:
+    detail: dict = {"message": message}
+    if path is not None:
+        detail |= {"path": path, "line": line}
+    mark_failed(generation.id, code=code, detail=detail)
+
+
+def _record_usage(generation: Generation, usage: Usage) -> None:
+    generation.input_tokens = usage.input_tokens
+    generation.output_tokens = usage.output_tokens
+    generation.cost_usd = usage.cost_usd
+    generation.latency_ms = usage.latency_ms
 
 
 def build_bundle(
@@ -328,22 +425,29 @@ def _set_stage(generation: Generation, stage: GenerationStage) -> None:
     generation.update(fields=["stage"])
 
 
-def _set_progress(generation: Generation, done: int, total: int) -> None:
-    generation.progress = {"batches_done": done, "batches_total": total}
-    generation.update(fields=["progress"])
+def _stage_callback(generation: Generation) -> Callable[[str], None]:
+    def on_stage(stage: str) -> None:
+        _set_stage(generation, GenerationStage(stage))
+
+    return on_stage
 
 
-def _fake_responses_path() -> Path | None:
-    if not settings.LLM_FAKE_RESPONSES:
+def _progress_callback(generation: Generation) -> Callable[[int, int], None]:
+    def on_progress(done: int, total: int) -> None:
+        generation.progress = {"done": done, "total": total}
+        generation.update(fields=["progress"])
+
+    return on_progress
+
+
+def fake_responses() -> FakeResponses | None:
+    """Fixture answers for the fake model, when `GENERATIONS_FAKE_RESPONSES` is set."""
+    if not settings.GENERATIONS_FAKE_RESPONSES:
         return None
-    path = Path(settings.LLM_FAKE_RESPONSES)
-    return path if path.is_absolute() else REPO_ROOT / path
+    return _load_fake_responses(settings.GENERATIONS_FAKE_RESPONSES)
 
 
 @cache
-def _load_programs_cached(root: Path, version: str) -> Programs:
-    return load_programs(root=root, version=version)
-
-
-def _programs(version: str) -> Programs:
-    return _load_programs_cached(ARTIFACTS_ROOT, version)
+def _load_fake_responses(configured: str) -> FakeResponses:
+    path = Path(configured)
+    return FakeResponses.from_file(path if path.is_absolute() else REPO_ROOT / path)

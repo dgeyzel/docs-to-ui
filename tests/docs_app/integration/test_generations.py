@@ -58,8 +58,8 @@ def test_pasted_openapi_is_detected_and_rendered() -> None:
     ]
 
 
-def test_paste_just_under_the_input_limit_is_accepted() -> None:
-    padding = "\n# " + "x" * (4 * 1024 * 1024)
+def test_paste_just_under_the_1_mb_limit_is_accepted() -> None:
+    padding = "\n# " + "x" * (1024 * 1024 - len(PETSTORE) - 100)
     text = PETSTORE + padding
 
     response = Client().post("/generations", data={"text": text, "language": ""})

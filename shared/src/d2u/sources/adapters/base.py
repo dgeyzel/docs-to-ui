@@ -34,3 +34,22 @@ class LanguageAdapter(Protocol):
     def group_key(self, op: Operation) -> str:
         """Navigation and batching group for an operation."""
         ...
+
+    def check_syntax(self, bundle: SourceBundle) -> None:
+        """Check the input parses, without extracting structure.
+
+        Used before the `llm` strategy sends source to a model, so broken
+        input fails fast with a precise location.
+
+        Raises:
+            InputError: A file doesn't parse; carries path and line.
+        """
+        ...
+
+    def entry_file(self, bundle: SourceBundle) -> str | None:
+        """The file the API is defined in, for languages that have one.
+
+        Raises:
+            InputError: Several files qualify and the bundle names none.
+        """
+        ...

@@ -29,6 +29,10 @@ CMD ["sh", "-c", "python scripts/sync_design.py --check && cd docs_app && pytest
 # Docker can forward to it. Always publish the port on the host's loopback,
 # never on all interfaces: docker run -p 127.0.0.1:8000:8000 ...
 FROM base AS prod
+# Only the Docs app's dependencies: the exact sync removes DSPy and the other
+# Tuning-only packages, and the build fails if DSPy is still importable.
+RUN uv sync --frozen --no-dev --package docs \
+    && python -c "import importlib.util, sys; sys.exit(importlib.util.find_spec('dspy') is not None)"
 WORKDIR /repo/docs_app
 RUN PLAIN_POSTGRES_URL=none PLAIN_SECRET_KEY=build-only PLAIN_TELEMETRY_BACKENDS='[]' \
     plain assets compile

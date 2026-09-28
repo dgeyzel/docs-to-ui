@@ -13,7 +13,10 @@
         <p class="meta-text">
             {{ generation.language|language_name }} · {{ generation.input_bytes }} bytes ·
             created {{ localtime(generation.created_at).strftime("%b %d, %Y %H:%M") }}
-            {% if generation.model %} · {{ generation.model }} ({{ generation.program_version }}){% endif %}
+            · {{ generation.strategy }} strategy
+            {% if generation.model %} · {{ generation.model }}{% endif %}
+            {% if generation.prompt_label %} · prompt {{ generation.prompt_label }}{% endif %}
+            {% if usage %} · {{ usage }}{% endif %}
         </p>
         {% if generation.status in ("pending", "running") %}
         <StatusFragment generation={generation} status={status} />

@@ -67,7 +67,7 @@ class OpenApiAdapter:
         Raises:
             InputError: The document is missing, ambiguous or invalid.
         """
-        entry = self._entry_file(bundle)
+        entry = self._entry_source(bundle)
         workspace = _Workspace(self._included(bundle))
         return _extract_surface(workspace.document(entry.path))
 
@@ -78,7 +78,29 @@ class OpenApiAdapter:
     def _included(self, bundle: SourceBundle) -> list[SourceFile]:
         return [file for file in bundle.files if self.includes(file.path)]
 
-    def _entry_file(self, bundle: SourceBundle) -> SourceFile:
+    def check_syntax(self, bundle: SourceBundle) -> None:
+        """Parse the entry document and check it declares OpenAPI 3.0 or 3.1.
+
+        Raises:
+            InputError: No entry document, a syntax error, or a bad version.
+        """
+        entry = self._entry_source(bundle)
+        document = _Workspace(self._included(bundle)).document(entry.path)
+        if not isinstance(document.data, dict):
+            raise InputError(
+                path=entry.path, line=1, message="The document must be a mapping."
+            )
+        _check_version(document)
+
+    def entry_file(self, bundle: SourceBundle) -> str | None:
+        """The OpenAPI document to document: the chosen one, or the only candidate.
+
+        Raises:
+            InputError: No OpenAPI file, or several candidates and none chosen.
+        """
+        return self._entry_source(bundle).path
+
+    def _entry_source(self, bundle: SourceBundle) -> SourceFile:
         files = self._included(bundle)
         if not files:
             raise InputError(

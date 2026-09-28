@@ -18,8 +18,25 @@ from typing import Any
 
 import dspy
 import pydantic
-from d2u.llm.signatures import JudgeEnrichment
-from d2u.schemas.docpage import BatchEnrichment, Example, Operation, OperationDocs
+from d2u.schemas.docpage import Example, Operation, OperationDocs
+from d2u.schemas.generated import GeneratedDocs
+
+
+class JudgeEnrichment(dspy.Signature):
+    """Grade documentation written for a batch of API operations.
+
+    `consistency` is 1.0 when nothing in the documentation contradicts any
+    operation's `source_description`, and lower for each contradiction.
+    `prose_quality` rates clarity, accuracy of tone and usefulness from 1
+    (unusable) to 5 (excellent reference documentation). Judge only what is
+    written; do not reward length.
+    """
+
+    operations: list[Operation] = dspy.InputField()
+    documentation: GeneratedDocs = dspy.InputField()
+    consistency: float = dspy.OutputField(desc="0.0 to 1.0")
+    prose_quality: int = dspy.OutputField(desc="1 to 5")
+
 
 WEIGHTS = {
     "coverage": 0.25,
@@ -41,7 +58,7 @@ class JudgeVerdict:
     prose: float
 
 
-Judge = Callable[[list[Operation], BatchEnrichment], JudgeVerdict]
+Judge = Callable[[list[Operation], GeneratedDocs], JudgeVerdict]
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,12 +91,12 @@ class EnrichScore:
         }
 
 
-def parse_result(result: Any) -> BatchEnrichment | None:
-    """The output as a `BatchEnrichment`, or None if it doesn't validate."""
-    if isinstance(result, BatchEnrichment):
+def parse_result(result: Any) -> GeneratedDocs | None:
+    """The output as a `GeneratedDocs`, or None if it doesn't validate."""
+    if isinstance(result, GeneratedDocs):
         return result
     try:
-        return BatchEnrichment.model_validate(result)
+        return GeneratedDocs.model_validate(result)
     except pydantic.ValidationError:
         return None
 
@@ -189,7 +206,7 @@ def llm_judge(lm: dspy.BaseLM) -> Judge:
     program = dspy.Predict(JudgeEnrichment)
 
     def judge(
-        operations: list[Operation], documentation: BatchEnrichment
+        operations: list[Operation], documentation: GeneratedDocs
     ) -> JudgeVerdict:
         with dspy.context(lm=lm):
             prediction = program(operations=operations, documentation=documentation)

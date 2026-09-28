@@ -389,9 +389,10 @@ name = "d2u"
 version = "0.1.0"
 source = { editable = "shared" }
 dependencies = [
-    { name = "dspy" },
     { name = "langfuse" },
-    { name = "openinference-instrumentation-dspy" },
+    { name = "litellm" },
+    { name = "openai" },
+    { name = "openinference-instrumentation-litellm" },
     { name = "opentelemetry-exporter-otlp-proto-http" },
     { name = "opentelemetry-processor-baggage" },
     { name = "plain" },
@@ -408,9 +409,10 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "dspy", specifier = ">=3.4.0" },
     { name = "langfuse", specifier = ">=4.15.6" },
-    { name = "openinference-instrumentation-dspy", specifier = ">=0.1.45" },
+    { name = "litellm", specifier = ">=1.103.0" },
+    { name = "openai", specifier = ">=2.54.0" },
+    { name = "openinference-instrumentation-litellm", specifier = ">=0.1.46" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.45.0" },
     { name = "opentelemetry-processor-baggage", specifier = ">=0.66b0" },
     { name = "plain" },
@@ -1115,21 +1117,21 @@ wheels = [
 ]
 
 [[package]]
-name = "openinference-instrumentation-dspy"
-version = "0.1.45"
+name = "openinference-instrumentation-litellm"
+version = "0.1.46"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "openinference-instrumentation" },
     { name = "openinference-semantic-conventions" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-instrumentation" },
-    { name = "opentelemetry-semantic-conventions" },
-    { name = "typing-extensions" },
+    { name = "opentelemetry-sdk" },
+    { name = "setuptools" },
     { name = "wrapt" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/35/81/0961bb9c42619d1cd1e0b1bcfd5acaed175b27f0868598c5f0473bb596fc/openinference_instrumentation_dspy-0.1.45.tar.gz", hash = "sha256:6bfe6ed981f9cf3017a80204fb1da2f7cb11fd2e3ec64ed5219fc106c0300053", size = 27252, upload-time = "2026-09-10T05:43:15.527Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/24/e4/1df53a6cfaef800ef9d01c69335dfdaf59066e0be5ca4f441b155c06042a/openinference_instrumentation_litellm-0.1.46.tar.gz", hash = "sha256:eb62fa74d7699648a164841337af3bcbf0be9a1b11d48b60921fe3ccd6dff687", size = 113614, upload-time = "2026-09-24T03:52:42.99Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3f/a9/c9f102f7720bb926494a29a99a56af1466016461b5f146b9522fcdf76074/openinference_instrumentation_dspy-0.1.45-py3-none-any.whl", hash = "sha256:ffcaaf8368b6338da123f867dec336d13ff7bb40defda22dbee6f171ba6002f6", size = 15723, upload-time = "2026-09-10T05:43:13.361Z" },
+    { url = "https://files.pythonhosted.org/packages/e4/89/535a7060cf8ec0d288eef74e6e735fef11af8e4368ae4184a5650ee18ca8/openinference_instrumentation_litellm-0.1.46-py3-none-any.whl", hash = "sha256:f6ef09476adc115bbf83fcebb6f351ef29f3da81717136315dd37befc32f8f00", size = 25225, upload-time = "2026-09-24T03:52:41.419Z" },
 ]
 
 [[package]]
@@ -1970,6 +1972,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/76/43/35e4d8aa320bffe8287fe8f65f578fa2d2db0a64212f0e710dce58267854/s3transfer-0.19.2.tar.gz", hash = "sha256:ba0309fd86be3c27dbf78cdd813c13c5e1df16e5874b99d2535ebbdfb9892993", size = 165592, upload-time = "2026-07-22T19:30:44.432Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/bc/e7/5c595c75e9f41a44f30e526eda465ea0b4eec93470e074e4a111b253f13a/s3transfer-0.19.2-py3-none-any.whl", hash = "sha256:d8168eccca828cbb2cd573675333f3bddd254313a9c42494b84c76b539e8ba25", size = 90216, upload-time = "2026-07-22T19:30:43.251Z" },
+]
+
+[[package]]
+name = "setuptools"
+version = "84.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/6d/44/f5da03a8ef95d369145c5bb53050e7877c9f3d312e128605fd9504829143/setuptools-84.0.0.tar.gz", hash = "sha256:f4695c21257f0d9b537ec2692c941d02ee143b7cc1276941349a546573b2ef73", size = 1168449, upload-time = "2026-08-08T18:27:58.365Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/95/9c/c510029fc6ef33a6275cd2c5d3cecd6613dfd6aa401d57c54f1c18852ccf/setuptools-84.0.0-py3-none-any.whl", hash = "sha256:51a52592b3b99e102b609654876bd65f19f999935166d1352678931132b0c670", size = 818216, upload-time = "2026-08-08T18:27:56.719Z" },
 ]
 
 [[package]]

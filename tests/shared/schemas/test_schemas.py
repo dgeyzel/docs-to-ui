@@ -49,7 +49,8 @@ def test_docpage_round_trips_through_json() -> None:
     )
 
     assert DocPage.model_validate_json(page.model_dump_json()) == page
-    assert page.schema_version == 1
+    assert page.schema_version == 2
+    assert page.strategy == "hybrid"
 
 
 def test_operation_docs_summary_is_limited_to_200_characters() -> None:
@@ -74,3 +75,17 @@ def test_param_location_must_be_a_known_value() -> None:
                 "required": True,
             }
         )
+
+
+def test_pages_stored_before_version_2_read_as_hybrid() -> None:
+    stored = {
+        "schema_version": 1,
+        "surface": {"title": "API", "language": "openapi", "operations": []},
+        "overview": {"overview_md": "", "groups": {}},
+        "operations": [],
+    }
+
+    page = DocPage.model_validate(stored)
+
+    assert page.strategy == "hybrid"
+    assert page.schema_version == 1

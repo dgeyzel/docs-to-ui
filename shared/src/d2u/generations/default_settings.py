@@ -1,13 +1,8 @@
-GENERATIONS_MAX_INPUT_BYTES: int = 5242880
+GENERATIONS_MAX_INPUT_BYTES: int = 1048576
 GENERATIONS_TIMEOUT_S: int = 900
-
-LLM_MODEL: str = "gemini/gemini-3.8-flash"
-LLM_THINKING_LEVEL: str = "medium"
-LLM_JUDGE_MODEL: str = "gemini/gemini-3.8-flash"
-LLM_JUDGE_THINKING_LEVEL: str = "high"
-LLM_PROGRAM_VERSION: str = "baseline"
-LLM_BATCH_TOKEN_BUDGET: int = 60000
-LLM_BATCH_MAX_OPERATIONS: int = 25
-LLM_MAX_CONCURRENCY: int = 4
-# DummyLM fixture file used when LLM_MODEL is "fake" (tests only).
-LLM_FAKE_RESPONSES: str = ""
+# Parallel LLM calls when an input is split, or for hybrid batches.
+GENERATIONS_MAX_CONCURRENCY: int = 4
+# Offer the hybrid strategy (parsed structure, LLM prose) in the Docs app.
+GENERATIONS_ENABLE_HYBRID: bool = False
+# Fixture file for the fake model (tests only), relative to the repository root.
+GENERATIONS_FAKE_RESPONSES: str = ""

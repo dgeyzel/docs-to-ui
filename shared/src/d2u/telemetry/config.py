@@ -2,7 +2,7 @@
 
 import logging
 
-from openinference.instrumentation.dspy import DSPyInstrumentor
+from openinference.instrumentation.litellm import LiteLLMInstrumentor
 from opentelemetry import trace
 from opentelemetry.processor.baggage import BaggageSpanProcessor
 from opentelemetry.sdk import trace as sdk_trace
@@ -101,7 +101,7 @@ def configure_tracing() -> None:
     for backend in build_backends(settings.TELEMETRY_BACKENDS):
         provider.add_span_processor(backend.span_processor())
         _active_backends.append(backend)
-    instrumentor = DSPyInstrumentor()
+    instrumentor = LiteLLMInstrumentor()
     if not instrumentor.is_instrumented_by_opentelemetry:
         instrumentor.instrument()
     _configured = True

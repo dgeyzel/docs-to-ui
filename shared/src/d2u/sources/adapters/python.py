@@ -127,6 +127,25 @@ class PythonAdapter:
         """Module for functions; the class for classes and their methods."""
         return op.group_hint
 
+    def check_syntax(self, bundle: SourceBundle) -> None:
+        """Parse every Python file with `ast`.
+
+        Raises:
+            InputError: No Python files, or a file with a syntax error.
+        """
+        files = [file for file in bundle.files if self.includes(file.path)]
+        if not files:
+            raise InputError(
+                path="", line=None, message="No Python (.py) files were found."
+            )
+        root = package_root([file.path for file in files])
+        for file in files:
+            _parse(file, root)
+
+    def entry_file(self, bundle: SourceBundle) -> str | None:
+        """Python has no entry file; every public module is documented."""
+        return None
+
 
 def package_root(paths: list[str]) -> str:
     """The directory module paths are derived from ("" for the bundle root).

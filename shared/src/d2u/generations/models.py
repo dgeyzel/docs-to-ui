@@ -4,6 +4,8 @@ from enum import StrEnum
 from plain import postgres
 from plain.postgres import Field, types
 
+from d2u.registry.models import ModelConfig, PromptVersion
+
 
 class GenerationStatus(StrEnum):
     PENDING = "pending"
@@ -15,6 +17,7 @@ class GenerationStatus(StrEnum):
 class GenerationStage(StrEnum):
     BUNDLE = "bundle"
     EXTRACT = "extract"
+    GENERATE = "generate"
     ENRICH = "enrich"
     OVERVIEW = "overview"
     MERGE = "merge"
@@ -27,6 +30,13 @@ class ErrorCode(StrEnum):
     TIMEOUT = "timeout"
     WORKER_LOST = "worker_lost"
     ENQUEUE_ERROR = "enqueue_error"
+    INTERNAL_ERROR = "internal_error"
+
+
+class Strategy(StrEnum):
+    LLM = "llm"
+    HYBRID = "hybrid"
+    PARSER = "parser"
 
 
 class InputOrigin(StrEnum):
@@ -68,10 +78,35 @@ class Generation(postgres.Model):
     )
     stage: Field[str] = types.TextField(max_length=16, required=False, default="")
     progress: Field[dict] = types.JSONField(required=False, default={})
-    program_version: Field[str] = types.TextField(
-        max_length=64, required=False, default=""
+    strategy: Field[str] = types.TextField(
+        max_length=8, choices=_choices(Strategy), default=Strategy.LLM.value
+    )
+    # The registry entries used, plus their names at the time, which stay
+    # readable if an entry is later edited or deleted.
+    llm_model: Field[ModelConfig | None] = types.ForeignKeyField(
+        ModelConfig,
+        on_delete=postgres.SET_NULL,
+        allow_null=True,
+        required=False,
+        default=None,
+        related_query_name="generations",
+    )
+    prompt_version: Field[PromptVersion | None] = types.ForeignKeyField(
+        PromptVersion,
+        on_delete=postgres.SET_NULL,
+        allow_null=True,
+        required=False,
+        default=None,
+        related_query_name="generations",
     )
     model: Field[str] = types.TextField(max_length=128, required=False, default="")
+    prompt_label: Field[str] = types.TextField(
+        max_length=200, required=False, default=""
+    )
+    input_tokens: Field[int] = types.IntegerField(default=0)
+    output_tokens: Field[int] = types.IntegerField(default=0)
+    cost_usd: Field[float] = types.FloatField(default=0.0)
+    latency_ms: Field[int] = types.IntegerField(default=0)
     doc_json: Field[dict | None] = types.JSONField(
         required=False, allow_null=True, default=None
     )
@@ -96,6 +131,13 @@ class Generation(postgres.Model):
         indexes=[
             postgres.Index(
                 fields=["created_at"], name="generations_generation_created_at_idx"
+            ),
+            postgres.Index(
+                fields=["llm_model"], name="generations_generation_llm_model_idx"
+            ),
+            postgres.Index(
+                fields=["prompt_version"],
+                name="generations_generation_prompt_version_idx",
             ),
         ],
     )

@@ -101,6 +101,19 @@
         <span class="form-error" role="alert">{{ error }}</span>
         {% endfor %}
     </div>
+    {% if form.show_strategy() %}
+    <div class="form-group">
+        <label class="form-label" for="{{ form.strategy.html_id }}">Strategy</label>
+        <select class="select" id="{{ form.strategy.html_id }}" name="{{ form.strategy.html_name }}">
+            <option value="llm">LLM: the model reads the source and writes the whole page</option>
+            <option value="hybrid">Hybrid: parsed structure, LLM-written descriptions</option>
+        </select>
+    </div>
+    {% endif %}
+    <p class="hint">
+        {% if active_model_name %}Model: {{ active_model_name }}{% else %}No active model is set{% endif %}
+        · chosen in the Tuning app
+    </p>
     <div>
         <button type="submit" class="button button-primary">Generate documentation</button>
     </div>

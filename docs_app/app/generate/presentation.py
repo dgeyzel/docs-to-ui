@@ -7,7 +7,12 @@ logic. Every piece of untrusted Markdown goes through `render_markdown`.
 import re
 from dataclasses import dataclass
 
-from d2u.generations.models import Generation, GenerationStage, GenerationStatus
+from d2u.generations.models import (
+    Generation,
+    GenerationStage,
+    GenerationStatus,
+    Strategy,
+)
 from d2u.schemas.docpage import DocPage, Operation, OperationDocs
 from markupsafe import Markup
 
@@ -80,6 +85,7 @@ ERROR_TITLES = {
     "timeout": "Timed out",
     "worker_lost": "Worker lost",
     "enqueue_error": "Could not start generation",
+    "internal_error": "Internal error",
 }
 
 
@@ -219,13 +225,20 @@ class _Anchors:
         return anchor
 
 
-STAGE_LABELS = (
+PARSED_STEPS = (
     (GenerationStage.BUNDLE, "Bundle"),
     (GenerationStage.EXTRACT, "Extract"),
     (GenerationStage.ENRICH, "Enrich"),
     (GenerationStage.OVERVIEW, "Overview"),
     (GenerationStage.MERGE, "Merge"),
 )
+LLM_STEPS = (
+    (GenerationStage.BUNDLE, "Bundle"),
+    (GenerationStage.GENERATE, "Generate"),
+    (GenerationStage.MERGE, "Merge"),
+)
+# While a split input's overview is written, the llm stepper still shows Generate.
+LLM_STAGE_ALIASES = {GenerationStage.OVERVIEW.value: GenerationStage.GENERATE.value}
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,26 +251,35 @@ class StepView:
 @dataclass(frozen=True, slots=True)
 class StatusView:
     steps: list[StepView]
-    batches_done: int
-    batches_total: int
+    done: int
+    total: int
     percent: int
     progress_label: str
 
 
 def build_status_view(generation: Generation) -> StatusView:
-    """The stage stepper and batch progress for a generation.
+    """The stage stepper and progress for a generation.
 
-    Steps before the current stage are "completed", the current one is
-    "active" (only while running) and later ones "upcoming".
+    The `llm` strategy shows Bundle, Generate and Merge; `hybrid` and
+    `parser` show the parse-first stages. Steps before the current stage are
+    "completed", the current one is "active" (only while running) and later
+    ones "upcoming".
     """
-    stages = [stage for stage, _ in STAGE_LABELS]
+    is_llm = generation.strategy == Strategy.LLM
+    step_labels = LLM_STEPS if is_llm else PARSED_STEPS
+    stage = (
+        LLM_STAGE_ALIASES.get(generation.stage, generation.stage)
+        if is_llm
+        else generation.stage
+    )
+    stages = [step for step, _ in step_labels]
     running = generation.status == GenerationStatus.RUNNING
-    current = stages.index(generation.stage) if generation.stage in stages else -1
+    current = stages.index(stage) if stage in stages else -1
     if generation.status == GenerationStatus.SUCCEEDED:
         current = len(stages)
 
     steps = []
-    for index, (_, label) in enumerate(STAGE_LABELS):
+    for index, (_, label) in enumerate(step_labels):
         if index < current:
             state = "completed"
         elif index == current and running:
@@ -266,22 +288,35 @@ def build_status_view(generation: Generation) -> StatusView:
             state = "upcoming"
         steps.append(StepView(number=index + 1, label=label, state=state))
 
-    done = int(generation.progress.get("batches_done", 0))
-    total = int(generation.progress.get("batches_total", 0))
+    done = int(generation.progress.get("done", 0))
+    total = int(generation.progress.get("total", 0))
     percent = round(100 * done / total) if total else 0
+    noun = "parts" if is_llm else "batches"
+    verb = "Generated" if is_llm else "Enriched"
     if generation.status == GenerationStatus.PENDING:
         progress_label = "Waiting for a worker…"
     elif total:
-        progress_label = f"Enriched {done} of {total} batches"
+        progress_label = f"{verb} {done} of {total} {noun}"
     else:
         progress_label = "Preparing…"
     return StatusView(
         steps=steps,
-        batches_done=done,
-        batches_total=total,
+        done=done,
+        total=total,
         percent=percent,
         progress_label=progress_label,
     )
+
+
+def usage_label(generation: Generation) -> str:
+    """Tokens and cost of a finished generation, e.g. "12,340 tokens · $0.0041"."""
+    tokens = generation.input_tokens + generation.output_tokens
+    if not tokens:
+        return ""
+    label = f"{tokens:,} tokens"
+    if generation.cost_usd:
+        label += f" · ${generation.cost_usd:.4f}"
+    return label
 
 
 def wall_time_label(generation: Generation) -> str:

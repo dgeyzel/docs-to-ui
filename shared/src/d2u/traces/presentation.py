@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Any, Protocol
 
 STAGE_NAMES = ("generate", "bundle", "extract", "overview", "merge")
-_BATCH_SPAN = re.compile(r"^enrich\.batch\[\d+\]$")
+_BATCH_SPAN = re.compile(r"^(enrich\.batch|generate\.part)\[\d+\]$")
 _MESSAGE_KEY = re.compile(
     r"^llm\.(input|output)_messages\.(\d+)\.message\.(role|content)$"
 )

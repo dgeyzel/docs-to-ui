@@ -22,7 +22,8 @@ from d2u.telemetry.events import FeedbackEvent
 logger = logging.getLogger(__name__)
 
 GENERATION_ID_KEY = "docs.generation_id"
-PROGRAM_VERSION_KEY = "docs.program_version"
+PROMPT_VERSION_KEY = "docs.prompt_version"
+MODEL_KEY = "docs.model"
 
 tracer = trace.get_tracer(__name__)
 
@@ -67,18 +68,20 @@ def generation_span(
     *,
     name: str,
     generation_id: int,
-    program_version: str,
+    prompt_version: str,
+    model: str,
     parent: TraceContext | None,
 ) -> Iterator[trace.Span]:
     """Run a block in a span that continues the originating request's trace.
 
-    The generation ID and program version are set as baggage, so every span
-    started inside the block carries them as attributes.
+    The generation ID, prompt version and model are set as baggage, so every
+    span started inside the block carries them as attributes.
 
     Args:
         name: Span name.
         generation_id: The generation being worked on.
-        program_version: The program artifact version in use.
+        prompt_version: The prompt version in use, e.g. "openapi/llm/baseline".
+        model: The model's registry name.
         parent: The request's trace context; None starts a new trace.
     """
     ctx = context.get_current()
@@ -91,7 +94,8 @@ def generation_span(
         )
         ctx = trace.set_span_in_context(NonRecordingSpan(remote), ctx)
     ctx = baggage.set_baggage(GENERATION_ID_KEY, str(generation_id), context=ctx)
-    ctx = baggage.set_baggage(PROGRAM_VERSION_KEY, program_version, context=ctx)
+    ctx = baggage.set_baggage(PROMPT_VERSION_KEY, prompt_version, context=ctx)
+    ctx = baggage.set_baggage(MODEL_KEY, model, context=ctx)
     token = context.attach(ctx)
     try:
         with tracer.start_as_current_span(name) as span:
@@ -137,3 +141,16 @@ def deliver_feedback(*, backend_name: str, trace_id: str, event: FeedbackEvent) 
             backend.deliver_feedback(trace_id, event)
             return
     logger.warning("No active backend %s can deliver feedback", backend_name)
+
+
+@contextmanager
+def generation_baggage(*, prompt_version: str) -> Iterator[None]:
+    """Add the prompt version to baggage for spans started inside the block.
+
+    Used once the input's language, and so its prompt, is known.
+    """
+    token = context.attach(baggage.set_baggage(PROMPT_VERSION_KEY, prompt_version))
+    try:
+        yield
+    finally:
+        context.detach(token)

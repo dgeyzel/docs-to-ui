@@ -1,6 +1,7 @@
 from typing import Any
 
 from d2u.generations.models import Feedback, Generation, GenerationStatus
+from d2u.registry.lookups import active_model
 from d2u.schemas.docpage import DocPage
 from d2u.sources.bundle import FileManifest
 from d2u.sources.registry import display_name
@@ -21,6 +22,7 @@ from app.generate.presentation import (
     build_error_view,
     build_page_view,
     build_status_view,
+    usage_label,
     wall_time_label,
 )
 
@@ -68,6 +70,8 @@ class HomeView(FormView[SourceForm]):
         context["max_input_label"] = format_megabytes(
             settings.GENERATIONS_MAX_INPUT_BYTES
         )
+        model = active_model()
+        context["active_model_name"] = model.name if model else ""
         return context
 
     def form_valid(self, form: SourceForm) -> Response:
@@ -95,6 +99,7 @@ class GenerationDetailView(TemplateView):
         context["trace_url"] = trace_url(generation.trace_id)
         context["trace_totals"] = generation_trace_totals(generation.trace_id)
         context["wall_time"] = wall_time_label(generation)
+        context["usage"] = usage_label(generation)
         context["page"] = None
         context["feedback"] = latest_feedback(generation)
         if generation.status == GenerationStatus.SUCCEEDED and generation.doc_json:

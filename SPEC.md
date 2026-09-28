@@ -115,6 +115,8 @@ flowchart LR
 3. **Detect.** Choose the language: detected, or overridden in the form.
 4. **Generate.** Render the active `PromptVersion` for that language with the bundle's files. Call the chosen model through LiteLLM, requesting `GeneratedPage` as structured output. Split large inputs (§6.4).
 5. **Validate and derive.** Validate into Pydantic, derive IDs in code, drop source locations that don't exist in the bundle, and convert to a `DocPage`.
+
+Before step 4, the `llm` strategy runs the adapter's syntax check (`check_syntax`): OpenAPI documents are parsed and their version checked, and Python files are parsed with `ast`. Broken input fails with `input_error` and a file and line, without a model call. No structure is extracted. For OpenAPI, the call also names the entry file (the chosen one, or the only candidate; several candidates with none chosen is an `input_error`), and the prompt documents only that API.
 6. **Persist, render, export, feedback.** As in v6.
 
 ## 5. Core Contracts
@@ -197,7 +199,7 @@ class DocPage(BaseModel):
 | Strategy | Structure from | Prose from | Where it's available |
 |---|---|---|---|
 | `llm` | LLM | LLM (the same call) | Docs app default; Tuning app evals |
-| `hybrid` | Deterministic parser (v6 adapters) | LLM, in one direct call per batch that returns `OperationDocs` for the given operations (no DSPy) | Tuning app evals; Docs app only when `GENERATIONS_ENABLE_HYBRID` is on |
+| `hybrid` | Deterministic parser (v6 adapters) | LLM, in one direct call per batch that returns `OperationDocs` for the given operations (no DSPy). Navigation groups follow the parser's group hints. | Tuning app evals; Docs app only when `GENERATIONS_ENABLE_HYBRID` is on |
 | `parser` | Deterministic parser | Source descriptions only (no LLM) | Tuning app evals, as the structural baseline |
 
 The v6 OpenAPI and Python adapters, the adapter registry and the adapter contract suite are kept unchanged in `d2u.sources`.
@@ -208,7 +210,7 @@ The v6 OpenAPI and Python adapters, the adapter registry and the adapter contrac
 - If the estimated prompt tokens are within the model's `max_input_tokens` (from the registry), the page is generated in **one call**.
 - Otherwise the bundle is split into parts that each fit, keeping files from the same directory together, and each part is generated in its own call (up to `GENERATIONS_MAX_CONCURRENCY` in parallel).
   - Parts are merged in code: operations are unioned by derived ID (the first occurrence wins, and duplicates become span events), and groups keep their first-seen order.
-  - One further call writes the overview from all parts' summaries.
+  - One further call writes the overview from all parts' summaries. The overview call (also used by `hybrid`) uses a fixed prompt, `d2u/prompts/overview.md`; it is not a prompt version.
   - If any part fails, the generation fails. Partial pages are not produced for the `llm` strategy.
 
 ### 6.5 Model and prompt selection [Decided]
@@ -432,7 +434,7 @@ Unchanged from v6, except for where things live:
 
 | Model | Package | Key fields |
 |---|---|---|
-| `Generation` | `d2u.generations` | v6 fields, plus `strategy`, `model_config_id`, `prompt_version_id`, `input_tokens`, `output_tokens`, `cost_usd`, `latency_ms`. Drops `program_version`. |
+| `Generation` | `d2u.generations` | v6 fields, plus `strategy`, `llm_model` (FK to `ModelConfig`), `prompt_version` (FK), `model` and `prompt_label` (the names at the time, kept if a registry entry changes), `input_tokens`, `output_tokens`, `cost_usd`, `latency_ms`. Drops `program_version`. |
 | `Feedback` | `d2u.generations` | unchanged |
 | `ModelConfig` | `d2u.registry` | §7 |
 | `PromptVersion`, `PromptPromotion` | `d2u.registry` | §8 |
@@ -445,7 +447,7 @@ Unchanged from v6, except for where things live:
 
 - Shared models are defined once, in `d2u` Plain packages, and installed by both apps. Tuning-only models are installed only by the Tuning app.
 - Either app can run `plain postgres sync`. Migrations for shared packages are identical in both.
-- Existing v6 data migrates forward: pages keep rendering (§5), and `program_version` values are recorded in the generation's notes.
+- Existing v6 data migrates forward: pages keep rendering (§5). `program_version` is dropped along with the v6 program artifacts.
 
 ## 14. Jobs and Workers
 
@@ -498,7 +500,7 @@ docs-to-ui/
 
 - Each Plain project runs from its own directory, e.g. `uv run --directory docs_app plain dev`. Each has its own `.plain/` state, `.env` and `.env.example`; shared values such as `DATABASE_URL` appear in both.
 - The projects are named `docs` and `tuning`. In development they run at `https://localhost:8443` and `https://localhost:8444` (`plain dev --hostname localhost --port …`), which needs no `/etc/hosts` entry.
-- The Docs app's environment never installs DSPy. A test enforces this.
+- The Docs app never imports DSPy: a test checks that no shared or Docs app module imports it and that booting the Docs app loads none of it. In development the workspace shares one environment, so DSPy is installed there for the Tuning app; the Docs app's production image is built with only its own dependencies and fails its build if DSPy is importable.
 
 ## 16. Configuration Summary
 
@@ -536,7 +538,7 @@ Removed from v6:
 | Unit (`tuning_app`) | Metrics (faithfulness, component accuracy and the rest), gold-set validation, DSPy wrapper export to `PromptVersion` | Fake / DummyLM | Every push |
 | Integration | Docs app job through every state; model registry and activation; prompt promotion and rollback; runtime backend switching; eval run and optimization run jobs; telemetry wiring (one trace ID) | Fake | Every push |
 | E2E | Docs app: generate, poll, page, export, feedback. Tuning app: add a model, curate a gold example, run an eval, compare runs, optimize, promote, then see the Docs app use it. Switch trace backends in the UI. | Fake, both workers running | Every push |
-| Dependency guard | The Docs app's environment can't import `dspy` | — | Every push |
+| Dependency guard | No shared or Docs app module imports `dspy`, and booting the Docs app loads none of it; the production image build fails if `dspy` is importable | — | Every push |
 | Design sync | `tokens.css` copy matches `design/` | — | Every push |
 | Real-model evals | Eval and optimization runs against real models | Real | Manual (Tuning app UI, or `evals.yml`) |
 
@@ -545,7 +547,7 @@ Removed from v6:
 | | Scope | Proves |
 |---|---|---|
 | **R1** | Restructure into the uv workspace (`shared`, `docs_app`, `tuning_app` skeleton). Move v6 code into `d2u` and `docs_app` with no behavior change, and keep every test green. Because behavior doesn't change, the Docs app still generates with DSPy during R1: the v6 DSPy program code lives temporarily in `d2u.llm` (and `dspy` in `d2u`'s dependencies) until R2 removes it. | Layout |
-| **R2** | Shared registry (`ModelConfig`, `PromptVersion`, `RuntimeSettings`) with seeds. Direct LiteLLM generation (`GeneratedPage`, ID derivation, splitting, 1 MB cap) in the Docs app. `hybrid` and `parser` strategies on the direct client. DSPy removed from the Docs app. | Direct generation |
+| **R2** | Shared registry (`ModelConfig`, `PromptVersion`, `RuntimeSettings`) with seeds. Direct LiteLLM generation (`GeneratedPage`, ID derivation, splitting, 1 MB cap) in the Docs app. `hybrid` and `parser` strategies on the direct client. DSPy removed from the Docs app and the shared library. The v6 pipeline's CLI, program artifacts and `evals.yml` are removed; its datasets and metric code stay in the Tuning app for R4, and `evals.yml` returns in R5. | Direct generation |
 | **R3** | Trace backend selection in the UI with the routing processor. Shared trace viewer in both apps. | Selectable telemetry |
 | **R4** | Tuning app: model management, gold sets (create, seed, import, edit, approve, split), eval runs with every §9.5 metric, results and comparison UI. | Measurable quality |
 | **R5** | Tuning app: optimization runs with configurable DSPy optimizers, candidate export, promotion and rollback to the Docs app, feedback-to-gold import, `evals.yml`. | Tuning loop |

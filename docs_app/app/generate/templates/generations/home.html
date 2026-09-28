@@ -3,7 +3,12 @@
 
 {% block content %}
 <main class="app-container">
-    <SourceForm form={form} action={url("generations:create")} max_input_label={max_input_label} />
+    <SourceForm
+        form={form}
+        action={url("generations:create")}
+        max_input_label={max_input_label}
+        active_model_name={active_model_name}
+    />
     <GenerationList generations={generations} />
 </main>
 {% endblock %}

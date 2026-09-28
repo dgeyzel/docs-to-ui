@@ -138,3 +138,26 @@ def test_reports_errors_with_path_and_line(name: str, adapter: LanguageAdapter) 
         adapter.extract(bundle)
 
     assert (excinfo.value.path, excinfo.value.line) == (error["path"], error["line"])
+
+
+def test_syntax_check_reports_the_same_location(
+    name: str, adapter: LanguageAdapter
+) -> None:
+    error = load_contract(name)["error"]
+    bundle = SourceBundle(
+        files=[
+            SourceFile(path=path, text=text) for path, text in error["files"].items()
+        ],
+        origin="zip",
+    )
+
+    with pytest.raises(InputError) as excinfo:
+        adapter.check_syntax(bundle)
+
+    assert (excinfo.value.path, excinfo.value.line) == (error["path"], error["line"])
+
+
+def test_syntax_check_accepts_its_own_bundle(
+    name: str, adapter: LanguageAdapter
+) -> None:
+    adapter.check_syntax(contract_bundle(name, adapter))

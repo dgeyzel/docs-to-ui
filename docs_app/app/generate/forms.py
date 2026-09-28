@@ -1,7 +1,7 @@
 import re
 from typing import Any
 
-from d2u.generations.models import InputOrigin
+from d2u.generations.models import InputOrigin, Strategy
 from d2u.sources.bundle import normalize_filename
 from plain import forms
 from plain.runtime import settings
@@ -28,10 +28,29 @@ class SourceForm(forms.Form):
     text = forms.TextField(required=False, strip=False)
     language = forms.ChoiceField(choices=language_choices, required=False)
     entry = forms.TextField(required=False, max_length=255)
+    strategy = forms.ChoiceField(
+        choices=[(Strategy.LLM.value, "LLM"), (Strategy.HYBRID.value, "Hybrid")],
+        required=False,
+    )
 
     def parse_entry(self) -> str:
         # Optional in submitted data: older clients and scripts may omit it.
         return self.data.get("entry", "")
+
+    def parse_strategy(self) -> str:
+        # Shown only when hybrid is enabled; absent means the default strategy.
+        return self.data.get("strategy", "")
+
+    def show_strategy(self) -> bool:
+        """Whether the form offers a choice of strategy."""
+        return settings.GENERATIONS_ENABLE_HYBRID
+
+    def chosen_strategy(self) -> Strategy:
+        """The submitted strategy, or `llm` when hybrid isn't enabled."""
+        value = self.cleaned_data.get("strategy") or Strategy.LLM.value
+        if not settings.GENERATIONS_ENABLE_HYBRID:
+            return Strategy.LLM
+        return Strategy(value)
 
     def clean(self) -> dict[str, Any]:
         cleaned = super().clean()
@@ -87,12 +106,14 @@ class SourceForm(forms.Form):
                 data=uploaded.read(),
                 language=language,
                 entry=(self.cleaned_data.get("entry") or "").strip() if is_zip else "",
+                strategy=self.chosen_strategy(),
             )
         return SubmittedInput(
             origin=InputOrigin.PASTE,
             filename="",
             data=self.cleaned_data["text"].encode("utf-8"),
             language=language,
+            strategy=self.chosen_strategy(),
         )
 
 

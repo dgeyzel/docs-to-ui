@@ -15,6 +15,7 @@ INSTALLED_PACKAGES = [
     "d2u.telemetry",
     "d2u.traces",
     "d2u.sources",
+    "d2u.registry",
     "d2u.generations",
     "d2u.ui",
     # Local packages.
@@ -26,8 +27,8 @@ JOBS_SCHEDULE = [
 ]
 
 # Pasted input is sent as form data, so this must exceed
-# GENERATIONS_MAX_INPUT_BYTES (5 MB); the form enforces the exact limit.
-DATA_UPLOAD_MAX_MEMORY_SIZE = 6 * 1024 * 1024
+# GENERATIONS_MAX_INPUT_BYTES (1 MB); the form enforces the exact limit.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024
 
 MIDDLEWARE = [
     "plain.postgres.DatabaseConnectionMiddleware",

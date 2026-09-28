@@ -1,9 +1,17 @@
 {
-  "[[ ## surface_outline ## ]]": {
-    "result": { "overview_md": "Overview.", "groups": {} }
+  "Operations to document:": {
+    "operations": [
+      {
+        "operation_id": "GET /pets"
+      }
+    ]
   },
-  "[[ ## operations ## ]]": {
-    "reasoning": "This output is missing required fields.",
-    "result": { "operations": [{ "operation_id": "GET /pets" }] }
+  "Source files:": {
+    "title": "Broken",
+    "operations": [
+      {
+        "kind": "http"
+      }
+    ]
   }
 }

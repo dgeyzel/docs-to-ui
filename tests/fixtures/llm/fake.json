@@ -1,0 +1,612 @@
+{
+  "Operations to summarize:": {
+    "title": "Petstore Plus API",
+    "overview_md": "The **Petstore Plus API** manages pets and orders."
+  },
+  "Operations to document:": {
+    "operations": [
+      {
+        "operation_id": "GET /pets",
+        "summary": "List available pets",
+        "description_md": "Returns a page of pets, newest first.",
+        "param_descriptions": {
+          "GET /pets#limit": "Maximum number of pets to return (default 20).",
+          "GET /pets#X-Request-Id": "Optional ID for tracing a request.",
+          "GET /pets#invented": "Not a real parameter."
+        },
+        "examples": [
+          {
+            "title": "List pets",
+            "language": "curl",
+            "code": "curl https://api.example.com/pets?limit=10"
+          }
+        ]
+      },
+      {
+        "operation_id": "POST /pets",
+        "summary": "Create a pet",
+        "description_md": "Creates a pet.",
+        "param_descriptions": {
+          "POST /pets#body": "The new pet's fields."
+        },
+        "examples": []
+      },
+      {
+        "operation_id": "GET /pets/{petId}",
+        "summary": "Get a pet",
+        "description_md": "Returns one pet.",
+        "param_descriptions": {},
+        "examples": []
+      },
+      {
+        "operation_id": "DELETE /pets/{petId}",
+        "summary": "Delete a pet",
+        "description_md": "Deletes a pet.",
+        "param_descriptions": {},
+        "examples": []
+      },
+      {
+        "operation_id": "PATCH /orders/{orderId}",
+        "summary": "Update an order",
+        "description_md": "Changes an order's status.",
+        "param_descriptions": {},
+        "examples": []
+      },
+      {
+        "operation_id": "GET /invented",
+        "summary": "Not a real operation",
+        "description_md": "Should be dropped.",
+        "param_descriptions": {},
+        "examples": []
+      }
+    ]
+  },
+  "Entry file: v2/openapi.yaml": {
+    "title": "X",
+    "overview_md": "One endpoint.",
+    "operations": [
+      {
+        "kind": "http",
+        "method": "GET",
+        "path": "/b",
+        "signature": "GET /b",
+        "group": "b",
+        "summary": "Get /b",
+        "description_md": "",
+        "params": [],
+        "examples": []
+      }
+    ]
+  },
+  "Entry file: v1/openapi.yaml": {
+    "title": "X",
+    "overview_md": "One endpoint.",
+    "operations": [
+      {
+        "kind": "http",
+        "method": "GET",
+        "path": "/a",
+        "signature": "GET /a",
+        "group": "a",
+        "summary": "Get /a",
+        "description_md": "",
+        "params": [],
+        "examples": []
+      }
+    ]
+  },
+  "Entry file: api/openapi.yaml": {
+    "title": "Multi API",
+    "overview_md": "Pets and service status.",
+    "operations": [
+      {
+        "kind": "http",
+        "method": "GET",
+        "path": "/pets",
+        "signature": "GET /pets",
+        "group": "Pets",
+        "summary": "List pets",
+        "params": [
+          {
+            "name": "limit",
+            "location": "query",
+            "type": "integer",
+            "required": false,
+            "default": null,
+            "description": "Page size."
+          }
+        ],
+        "returns": "200 array[pet]",
+        "source_path": "api/paths/pets.yaml",
+        "source_line": 1,
+        "description_md": "",
+        "examples": []
+      },
+      {
+        "kind": "http",
+        "method": "GET",
+        "path": "/status",
+        "signature": "GET /status",
+        "group": "status",
+        "summary": "Service status",
+        "returns": "200 Status",
+        "source_path": "api/openapi.yaml",
+        "source_line": 9,
+        "description_md": "",
+        "params": [],
+        "examples": []
+      }
+    ]
+  },
+  "title: Petstore Plus API": {
+    "title": "Petstore Plus API",
+    "overview_md": "The **Petstore Plus API** manages pets and their orders.\n\nUse the pet endpoints to list, create, fetch and delete pets, and the order endpoint to update an order's status.",
+    "operations": [
+      {
+        "kind": "http",
+        "method": "GET",
+        "path": "/pets",
+        "signature": "GET /pets",
+        "group": "Pets",
+        "summary": "List available pets",
+        "description_md": "Returns a page of pets, newest first. Use `limit` to control the page size.",
+        "params": [
+          {
+            "name": "limit",
+            "location": "query",
+            "type": "integer(int32)",
+            "required": false,
+            "default": "20",
+            "description": "Maximum number of pets to return (default 20)."
+          },
+          {
+            "name": "X-Request-Id",
+            "location": "header",
+            "type": "string(uuid)",
+            "required": false,
+            "default": null,
+            "description": "Optional ID for tracing a request."
+          }
+        ],
+        "returns": "200 array[Pet]",
+        "examples": [
+          {
+            "title": "List pets",
+            "language": "curl",
+            "code": "curl https://api.example.com/pets?limit=10"
+          },
+          {
+            "title": "Response",
+            "language": "json",
+            "code": "[{\"id\": \"pet_1\", \"name\": \"Luna\"}]"
+          }
+        ],
+        "source_path": "input.yaml",
+        "source_line": 8
+      },
+      {
+        "kind": "http",
+        "method": "POST",
+        "path": "/pets",
+        "signature": "POST /pets",
+        "group": "Pets",
+        "summary": "Create a pet",
+        "description_md": "Creates a pet from the request body and returns it.",
+        "params": [
+          {
+            "name": "body",
+            "location": "body",
+            "type": "NewPet",
+            "required": true,
+            "default": null,
+            "description": "The new pet's fields."
+          }
+        ],
+        "returns": "201 Pet",
+        "examples": [
+          {
+            "title": "Create",
+            "language": "curl",
+            "code": "curl -X POST https://api.example.com/pets -d '{\"name\": \"Max\"}'"
+          }
+        ],
+        "source_path": "input.yaml",
+        "source_line": 34
+      },
+      {
+        "kind": "http",
+        "method": "GET",
+        "path": "/pets/{petId}",
+        "signature": "GET /pets/{petId}",
+        "group": "Pets",
+        "summary": "Get a pet",
+        "description_md": "Returns one pet by its ID, or 404 if it doesn't exist.",
+        "params": [
+          {
+            "name": "petId",
+            "location": "path",
+            "type": "string",
+            "required": true,
+            "default": null,
+            "description": "The pet's ID."
+          }
+        ],
+        "returns": "200 Pet",
+        "source_path": "input.yaml",
+        "source_line": 53,
+        "examples": []
+      },
+      {
+        "kind": "http",
+        "method": "DELETE",
+        "path": "/pets/{petId}",
+        "signature": "DELETE /pets/{petId}",
+        "group": "Pets",
+        "summary": "Delete a pet",
+        "description_md": "Permanently deletes a pet.",
+        "params": [
+          {
+            "name": "petId",
+            "location": "path",
+            "type": "string",
+            "required": true,
+            "default": null,
+            "description": "The pet's ID."
+          }
+        ],
+        "returns": "204 Deleted.",
+        "source_path": "input.yaml",
+        "source_line": 65,
+        "examples": []
+      },
+      {
+        "kind": "http",
+        "method": "PATCH",
+        "path": "/orders/{orderId}",
+        "signature": "PATCH /orders/{orderId}",
+        "group": "Orders",
+        "summary": "Update an order",
+        "description_md": "Changes an order's status.",
+        "params": [
+          {
+            "name": "orderId",
+            "location": "path",
+            "type": "integer",
+            "required": true,
+            "default": null,
+            "description": "The order's ID."
+          },
+          {
+            "name": "status",
+            "location": "query",
+            "type": "string | null",
+            "required": false,
+            "default": null,
+            "description": "The new status."
+          }
+        ],
+        "returns": "default The updated order.",
+        "source_path": "input.yaml",
+        "source_line": 9999,
+        "examples": []
+      }
+    ]
+  },
+  "\"title\": \"Notes API\"": {
+    "title": "Notes API",
+    "overview_md": "Create and list notes.",
+    "operations": [
+      {
+        "kind": "http",
+        "method": "GET",
+        "path": "/notes",
+        "signature": "GET /notes",
+        "group": "notes",
+        "summary": "List notes",
+        "params": [
+          {
+            "name": "tag",
+            "location": "query",
+            "type": "string | null",
+            "required": false,
+            "default": null,
+            "description": "Only notes with this tag."
+          }
+        ],
+        "returns": "200 array[Note]",
+        "description_md": "",
+        "examples": []
+      },
+      {
+        "kind": "http",
+        "method": "POST",
+        "path": "/notes",
+        "signature": "POST /notes",
+        "group": "notes",
+        "summary": "Create a note",
+        "params": [
+          {
+            "name": "body",
+            "location": "body",
+            "type": "Note | string",
+            "required": false,
+            "default": null,
+            "description": "The note."
+          }
+        ],
+        "returns": "201 Created.",
+        "description_md": "",
+        "examples": []
+      }
+    ]
+  },
+  "class Client:": {
+    "title": "acme",
+    "overview_md": "A client library for Acme servers.",
+    "operations": [
+      {
+        "kind": "class",
+        "qualified_name": "acme.Client",
+        "signature": "class Client: Client(url: str, timeout: float = 5.0)",
+        "group": "acme.Client",
+        "summary": "A connection to an Acme server.",
+        "params": [
+          {
+            "name": "url",
+            "location": "arg",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "description": "Server URL."
+          },
+          {
+            "name": "timeout",
+            "location": "arg",
+            "type": "float",
+            "required": false,
+            "default": "5.0",
+            "description": "Seconds to wait."
+          }
+        ],
+        "returns": null,
+        "examples": [
+          {
+            "title": "Use it",
+            "language": "python",
+            "code": "acme.Client"
+          }
+        ],
+        "source_path": "src/acme/client.py",
+        "source_line": 1,
+        "description_md": ""
+      },
+      {
+        "kind": "method",
+        "qualified_name": "acme.Client.get",
+        "signature": "get(key: str, default: bytes | None = None) -> bytes",
+        "group": "acme.Client",
+        "summary": "Fetch the value stored under a key.",
+        "params": [
+          {
+            "name": "key",
+            "location": "arg",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "description": "The key."
+          },
+          {
+            "name": "default",
+            "location": "kwarg",
+            "type": "bytes | None",
+            "required": false,
+            "default": "None",
+            "description": "Returned when missing."
+          }
+        ],
+        "returns": "bytes",
+        "examples": [
+          {
+            "title": "Use it",
+            "language": "python",
+            "code": "acme.Client.get"
+          }
+        ],
+        "source_path": "src/acme/client.py",
+        "source_line": 7,
+        "description_md": ""
+      },
+      {
+        "kind": "method",
+        "qualified_name": "acme.Client.stream",
+        "signature": "async stream(*keys: str, **options: str)",
+        "group": "acme.Client",
+        "summary": "Stream values as they change.",
+        "params": [],
+        "returns": null,
+        "examples": [
+          {
+            "title": "Use it",
+            "language": "python",
+            "code": "acme.Client.stream"
+          }
+        ],
+        "source_path": "src/acme/client.py",
+        "source_line": 11,
+        "description_md": ""
+      },
+      {
+        "kind": "method",
+        "qualified_name": "acme.Client.version",
+        "signature": "version() -> str",
+        "group": "acme.Client",
+        "summary": "The client version.",
+        "params": [],
+        "returns": "str",
+        "examples": [
+          {
+            "title": "Use it",
+            "language": "python",
+            "code": "acme.Client.version"
+          }
+        ],
+        "source_path": "src/acme/client.py",
+        "source_line": 15,
+        "description_md": ""
+      },
+      {
+        "kind": "class",
+        "qualified_name": "acme.AcmeError",
+        "signature": "class AcmeError(Exception)",
+        "group": "acme.AcmeError",
+        "summary": "Base class for Acme errors.",
+        "params": [],
+        "returns": null,
+        "examples": [
+          {
+            "title": "Use it",
+            "language": "python",
+            "code": "acme.AcmeError"
+          }
+        ],
+        "source_path": "src/acme/errors.py",
+        "source_line": 1,
+        "description_md": ""
+      },
+      {
+        "kind": "function",
+        "qualified_name": "acme.connect",
+        "signature": "connect(url: str, timeout: float = 5.0) -> Client",
+        "group": "acme",
+        "summary": "Connect to an Acme server.",
+        "params": [
+          {
+            "name": "url",
+            "location": "arg",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "description": "Server URL."
+          },
+          {
+            "name": "timeout",
+            "location": "kwarg",
+            "type": "float",
+            "required": false,
+            "default": "5.0",
+            "description": "Seconds to wait."
+          }
+        ],
+        "returns": "Client",
+        "examples": [
+          {
+            "title": "Use it",
+            "language": "python",
+            "code": "acme.connect"
+          }
+        ],
+        "source_path": "src/acme/__init__.py",
+        "source_line": 11,
+        "description_md": ""
+      },
+      {
+        "kind": "function",
+        "qualified_name": "acme.helpers.internal_helper",
+        "signature": "internal_helper(value)",
+        "group": "acme.helpers",
+        "summary": "Return the value unchanged.",
+        "params": [],
+        "returns": null,
+        "examples": [
+          {
+            "title": "Use it",
+            "language": "python",
+            "code": "acme.helpers.internal_helper"
+          }
+        ],
+        "source_path": "src/acme/helpers.py",
+        "source_line": 4,
+        "description_md": ""
+      },
+      {
+        "kind": "function",
+        "qualified_name": "acme.plugins.loader.load",
+        "signature": "load(name: str) -> object",
+        "group": "acme.plugins.loader",
+        "summary": "Load a plugin by name.",
+        "params": [
+          {
+            "name": "name",
+            "location": "arg",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "description": "Plugin name."
+          }
+        ],
+        "returns": "object",
+        "examples": [
+          {
+            "title": "Use it",
+            "language": "python",
+            "code": "acme.plugins.loader.load"
+          }
+        ],
+        "source_path": "src/acme/plugins/loader.py",
+        "source_line": 1,
+        "description_md": ""
+      }
+    ]
+  },
+  "def get(key: str)": {
+    "title": "client",
+    "overview_md": "A tiny client.",
+    "operations": [
+      {
+        "kind": "function",
+        "qualified_name": "client.get",
+        "signature": "get(key: str) -> str",
+        "group": "client",
+        "summary": "Return the key.",
+        "params": [
+          {
+            "name": "key",
+            "location": "arg",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "description": "The key."
+          }
+        ],
+        "returns": "str",
+        "examples": [
+          {
+            "title": "Use it",
+            "language": "python",
+            "code": "client.get"
+          }
+        ],
+        "source_path": "client.py",
+        "source_line": 1,
+        "description_md": ""
+      }
+    ]
+  },
+  "Entry file: openapi.yaml": {
+    "title": "X",
+    "overview_md": "One endpoint.",
+    "operations": [
+      {
+        "kind": "http",
+        "method": "GET",
+        "path": "/a",
+        "signature": "GET /a",
+        "group": "a",
+        "summary": "Get /a",
+        "description_md": "",
+        "params": [],
+        "examples": []
+      }
+    ]
+  }
+}

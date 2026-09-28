@@ -38,7 +38,7 @@ class GenerateDocJob(Job):
             logger.exception("Generation %s crashed", self.generation_id)
             mark_failed(
                 self.generation_id,
-                code=ErrorCode.VALIDATION_ERROR,
+                code=ErrorCode.INTERNAL_ERROR,
                 detail={"message": f"Unexpected error ({type(exc).__name__})."},
             )
 

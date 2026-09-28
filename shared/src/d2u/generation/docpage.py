@@ -33,9 +33,11 @@ def build_unenriched_docpage(
 ) -> DocPage:
     """Return a page that shows only what was extracted from the source.
 
-    Every operation is rendered as "not enriched".
+    This is the `parser` strategy: no LLM, and every operation is rendered
+    as "not enriched".
     """
     return DocPage(
+        strategy="parser",
         surface=surface,
         overview=fallback_overview(
             surface=surface, group_of=group_of, display_name=display_name

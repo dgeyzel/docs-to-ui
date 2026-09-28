@@ -54,11 +54,11 @@ def test_request_job_and_llm_spans_share_one_trace(
     llm = [
         s for s in spans if (s.attributes or {}).get("openinference.span.kind") == "LLM"
     ]
-    stages = {s.name for s in spans} & {"bundle", "extract", "overview", "merge"}
+    stages = {s.name for s in spans} & {"bundle", "check", "merge"}
 
     assert llm, "no DSPy LLM spans were recorded"
-    assert stages == {"bundle", "extract", "overview", "merge"}
-    assert any(s.name == "enrich.batch[0]" for s in spans)
+    assert stages == {"bundle", "check", "merge"}
+    assert any(s.name == "generate.part[0]" for s in spans)
     trace_ids = {request.context.trace_id, job.context.trace_id} | {
         s.context.trace_id for s in llm
     }
@@ -71,6 +71,9 @@ def test_request_job_and_llm_spans_share_one_trace(
     for span in [job, *llm]:
         assert span.attributes is not None
         assert span.attributes["docs.generation_id"] == str(generation.id)
-        assert span.attributes["docs.program_version"] == "baseline"
+        assert span.attributes["docs.model"] == "Fake"
+    for span in llm:
+        assert span.attributes is not None
+        assert span.attributes["docs.prompt_version"] == "openapi/llm/baseline"
     assert request.attributes is not None
     assert request.attributes["docs.generation_id"] == generation.id

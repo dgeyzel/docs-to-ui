@@ -15,6 +15,7 @@ INSTALLED_PACKAGES = [
     "d2u.telemetry",
     "d2u.traces",
     "d2u.sources",
+    "d2u.registry",
     "d2u.generations",
     "d2u.ui",
     # Local packages.

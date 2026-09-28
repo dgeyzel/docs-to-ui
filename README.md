@@ -1,6 +1,6 @@
 # Docs-to-UI
 
-A single-user, local developer tool that turns an OpenAPI document or a Python codebase into a readable, navigable documentation page. You paste text or upload a file or `.zip`. The tool extracts the API structure with a real parser, asks an LLM (Gemini, through DSPy) to write summaries, descriptions and examples, and renders a styled page you can read in the app or export as a standalone HTML file. Every generation is traced end to end, and your 👍 / 👎 feedback feeds an offline optimization pipeline.
+A single-user, local developer tool that turns an OpenAPI document or a Python codebase into a readable, navigable documentation page. You paste text or upload a file or `.zip`. The Docs app sends the source to an LLM in one direct call (through LiteLLM, so Gemini, Claude and other providers work), gets back the page's content as validated Pydantic types, and renders a styled page you can read in the app or export as a standalone HTML file. Every generation is traced end to end, and a second app, the Tuning app, evaluates and tunes the Docs app.
 
 ## About This Project
 
@@ -26,24 +26,26 @@ The shared `d2u` library (`shared/`) holds the contracts, parsers, telemetry, tr
 | --- | --- | --- |
 | v6 **M1–M5** | Single-app version: OpenAPI and Python input, DSPy enrichment, jobs, tracing, feedback, optimization pipeline, containers | Done |
 | **R1** | Restructure into a uv workspace (`shared`, `docs_app`, `tuning_app`) with no behavior change | Done |
-| **R2** | Direct LiteLLM generation in the Docs app, model and prompt registry, 1 MB input cap, DSPy removed from the Docs app | Planned |
+| **R2** | Direct LiteLLM generation in the Docs app, model and prompt registry, 1 MB input cap, DSPy removed from the Docs app | Done |
 | **R3** | Trace backend selectable in the UI | Planned |
 | **R4** | Tuning app: models, gold sets, evals and metrics, run comparison | Planned |
 | **R5** | Tuning app: DSPy optimization and prompt promotion | Planned |
 | **R6** | Containers for both apps, CI, docs | Planned |
 
-Until R2, the Docs app still works as v6 did: it parses the input and enriches it through DSPy. Where the code differs from the spec, see [Development Status](#development-status).
+Until the Tuning app's UI arrives in R4, models and prompt versions are managed through the seeded defaults (see [Models and prompt versions](#models-and-prompt-versions)). Where the code differs from the spec, see [Development Status](#development-status).
 
 ## Features
 
 ### Generating documentation
 
-- Paste text, or upload a single file or a `.zip` archive (up to 5 MB)
+- Paste text, or upload a single file or a `.zip` archive (up to 1 MB)
 - **OpenAPI** 3.0 and 3.1, in JSON or YAML, as one file or many files linked by relative `$ref`s
 - **Python** source, parsed with `ast` only: user code is never imported or run
 - The language is detected automatically, or you can choose it
 - For a zip with several OpenAPI entry files, choose one with the **Entry file** field
-- Generation runs in a background job. The page shows a live stage stepper (Bundle → Extract → Enrich → Overview → Merge) and batch progress
+- Generation runs in a background job with one direct LLM call. The page shows a live stage stepper (Bundle → Generate → Merge) and, for large inputs split into parts, part progress
+- Broken input (a YAML syntax error, a Python syntax error, an unsupported OpenAPI version) fails before any model call, with the file and line
+- Three strategies: **`llm`** (the default: the model reads the source and writes the whole page), **`hybrid`** (a parser extracts the structure and the model writes the descriptions) and **`parser`** (no model, used as an eval baseline). The Docs app offers `hybrid` only when `PLAIN_GENERATIONS_ENABLE_HYBRID` is on
 - Invalid input fails with an error that names the file and line, for example `src/acme/client.py:12`
 - **Retry** and **Regenerate** start a fresh generation from the stored input
 - A history of recent generations with their status
@@ -52,7 +54,8 @@ Until R2, the Docs app still works as v6 did: it parses the input and enriches i
 
 - An overview and sidebar groups written by the LLM, validated against the extracted operations
 - One card per operation: method badge or signature, summary, description, parameter table, code examples, return value and source location (`acme/client.py:42`)
-- Operations whose LLM batch failed still render from the source's own descriptions, marked "Not enriched"
+- Operation and parameter IDs are derived in code (`GET /pets`, `acme.Client.get`), never invented by the model, so pages from every strategy line up
+- With the `hybrid` strategy, operations whose batch failed still render from the source's own descriptions, marked "Not enriched"
 - Collapsible groups and cards, example tabs, copy buttons, active-section highlighting
 - Light and dark themes: the app has a toggle, and exports follow the reader's system setting
 - A print stylesheet that hides the sidebar and controls and wraps long code lines
@@ -70,29 +73,28 @@ Until R2, the Docs app still works as v6 did: it parses the input and enriches i
 
 ### Tracing
 
-- Every request, job stage and LLM call is an OpenTelemetry span. Spans from the request, the job and DSPy share one trace ID
+- Every request, job stage and LLM call is an OpenTelemetry span. Spans from the request, the job and the LLM calls share one trace ID
 - **Native backend:** spans stored in Postgres and shown in the in-app trace viewer (trace list, waterfall timeline, span details and a dedicated LLM call view with messages and token counts)
 - **Langfuse backend:** spans sent over OTLP and feedback sent as scores. Both backends can be active at once
 - A summary strip on each generation page: LLM calls, total tokens, wall time and a **View trace** link
 - Spans older than 30 days are pruned daily
 
-### Quality measurement
+### Models and prompts
 
-- Versioned program artifacts in `artifacts/programs/`, selected with `LLM_PROGRAM_VERSION`
-- Train and dev datasets for both languages, including multi-file zip inputs
-- A metric with a schema gate, coverage, fidelity, judge-rated consistency, example validity and judge-rated prose quality
-- `optimize.py` to evaluate a version or optimize a new one, and a manual `evals.yml` workflow
+- A shared registry of models (any LiteLLM model string, with its call parameters and the name of the environment variable holding its key) and prompt versions (instructions plus few-shot examples)
+- The Docs app always uses the active model and the active prompt version for the input's language; both are chosen in the Tuning app, and the generation page records which were used, with tokens and cost
+- Seeded defaults: Gemini 3.8 Flash as the generation model, Claude Sonnet 4.5 as the default judge, and a `baseline` prompt for each language and strategy
 
 ## Tech Stack
 
 - **Web framework:** [Plain](https://plainframework.com/) (a Django fork) with Jinja2 templates, `plain.elements` components and `plain.htmx`
 - **Database and jobs:** Postgres through `plain.postgres`, with `plain.jobs` for background work
-- **LLM:** [DSPy](https://dspy.ai/) programs with Pydantic-typed signatures, calling Gemini through LiteLLM
+- **LLM:** [LiteLLM](https://docs.litellm.ai/) for every call, with Pydantic models as structured-output schemas; [DSPy](https://dspy.ai/) only in the Tuning app
 - **Data models:** Pydantic v2 for every structure that crosses a boundary
 - **Parsing:** PyYAML (`safe_load` semantics) for OpenAPI, Python's `ast` for Python, `zipfile` in memory for archives
 - **Rendering:** markdown-it-py with output sanitized by nh3
 - **Styling and scripts:** plain CSS with design-system custom properties (no Tailwind) and vanilla JavaScript
-- **Observability:** OpenTelemetry SDK, `openinference-instrumentation-dspy`, a raw-psycopg span exporter, and the Langfuse SDK and OTLP exporter
+- **Observability:** OpenTelemetry SDK, `openinference-instrumentation-litellm`, a raw-psycopg span exporter, and the Langfuse SDK and OTLP exporter
 - **Tooling:** a uv workspace, ruff and ty (through `plain code`), pytest, Playwright, Docker, GitHub Actions
 
 ## Requirements
@@ -101,7 +103,7 @@ Until R2, the Docs app still works as v6 did: it parses the input and enriches i
 - Python 3.14 (uv installs it for you)
 - [uv](https://docs.astral.sh/uv/getting-started/installation/)
 - Docker with Docker Compose, for Postgres. On Windows, use Docker Desktop with the WSL2 backend.
-- A [Gemini API key](https://aistudio.google.com/apikey) to generate real documentation. Without one you can still run the app with the built-in fake model (see [Configuration](#configuration)).
+- A [Gemini API key](https://aistudio.google.com/apikey) for the seeded generation model, and an [Anthropic API key](https://console.anthropic.com/) for the seeded judge once evals arrive. Without keys you can still try the app with the fake model (see [Configuration](#configuration)).
 
 The repository must live on the Linux filesystem (a path under `/home/`), not on a Windows drive such as `/mnt/c/`.
 
@@ -127,7 +129,7 @@ docker compose up -d --wait
 uv run --directory docs_app plain postgres sync
 ```
 
-Put your Gemini key in `docs_app/.env` (and in `tuning_app/.env` if you'll run evaluations):
+Put your provider keys in `docs_app/.env` (and in `tuning_app/.env` for evaluations):
 
 ```bash
 GEMINI_API_KEY=your-gemini-api-key
@@ -146,11 +148,10 @@ DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/docs_to_ui
 GEMINI_API_KEY=your-gemini-api-key
 ```
 
-To try the app without a Gemini key, use the fake model. It answers from a fixture written for the petstore example, so other inputs come out mostly "Not enriched":
+To try the app without a provider key, point the fake model at the test fixtures and make it active (see [Models and prompt versions](#models-and-prompt-versions)). It answers from fixtures written for the test inputs, so other inputs fail with a validation error:
 
 ```bash
-PLAIN_LLM_MODEL=fake
-PLAIN_LLM_FAKE_RESPONSES=tests/fixtures/llm/petstore.json
+PLAIN_GENERATIONS_FAKE_RESPONSES=tests/fixtures/llm/fake.json
 ```
 
 ### Settings
@@ -160,18 +161,12 @@ PLAIN_LLM_FAKE_RESPONSES=tests/fixtures/llm/petstore.json
 | `DATABASE_URL` | required | Postgres connection. The default matches `docker-compose.yml`. |
 | `PLAIN_SECRET_KEY` | required | Plain's secret key. Use any long random string locally. |
 | `PLAIN_DEBUG` | `false` | `true` for development: serves assets from source. |
-| `GEMINI_API_KEY` | — | Gemini authentication, read by LiteLLM. |
-| `PLAIN_LLM_MODEL` | `gemini/gemini-3.8-flash` | LiteLLM model string, or `fake`. |
-| `PLAIN_LLM_THINKING_LEVEL` | `medium` | `low`, `medium` or `high`. No sampling parameters are ever sent. |
-| `PLAIN_LLM_JUDGE_MODEL` | `gemini/gemini-3.8-flash` | Judge model for evaluations. |
-| `PLAIN_LLM_JUDGE_THINKING_LEVEL` | `high` | Thinking level for the judge. |
-| `PLAIN_LLM_PROGRAM_VERSION` | `baseline` | Which program artifact to load. |
-| `PLAIN_LLM_BATCH_TOKEN_BUDGET` | `60000` | Estimated tokens per LLM batch. |
-| `PLAIN_LLM_BATCH_MAX_OPERATIONS` | `25` | Operations per batch. |
-| `PLAIN_LLM_MAX_CONCURRENCY` | `4` | Batches sent in parallel. |
-| `PLAIN_LLM_FAKE_RESPONSES` | `""` | DummyLM fixture file for `LLM_MODEL=fake`. |
-| `PLAIN_GENERATIONS_MAX_INPUT_BYTES` | `5242880` | Largest upload or paste (5 MB). |
-| `PLAIN_GENERATIONS_TIMEOUT_S` | `900` | Soft time limit, checked between batches. |
+| `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, … | — | Provider keys, read by LiteLLM. Each registered model names the variable holding its key; the seeded models use these two. |
+| `PLAIN_GENERATIONS_MAX_INPUT_BYTES` | `1048576` | Largest upload or paste (1 MB). |
+| `PLAIN_GENERATIONS_TIMEOUT_S` | `900` | Soft time limit, checked between LLM calls. |
+| `PLAIN_GENERATIONS_MAX_CONCURRENCY` | `4` | Parallel calls when an input is split, or for `hybrid` batches. |
+| `PLAIN_GENERATIONS_ENABLE_HYBRID` | `false` | Offer the `hybrid` strategy in the Docs app's form. |
+| `PLAIN_GENERATIONS_FAKE_RESPONSES` | `""` | Fixture file for the fake model (tests), relative to the repository root. |
 | `PLAIN_SOURCES_ENABLED_ADAPTERS` | `["openapi","python"]` | Enabled language adapters. |
 | `PLAIN_SOURCES_ZIP_MAX_UNCOMPRESSED_BYTES` | `52428800` | Total bytes a zip may expand to (50 MB). |
 | `PLAIN_SOURCES_ZIP_MAX_FILE_BYTES` | `5242880` | Largest file inside a zip (5 MB). |
@@ -194,9 +189,27 @@ uv run python scripts/sync_design.py
 
 The script checks the manifest and all 87 required tokens (light values plus both dark-theme blocks), and rejects `url()` values that point to the network. CI runs it with `--check` and fails if the copy is stale.
 
-### Program artifacts
+### Models and prompt versions
 
-`artifacts/programs/<program>/<version>.json` holds saved DSPy program state, next to a `.meta.json` recording the dataset hash, scores, model, thinking level, DSPy version and date. The committed `baseline` version is the unoptimized programs. `optimize.py` writes new versions; select one with `PLAIN_LLM_PROGRAM_VERSION`.
+Models, prompt versions and the active choices live in the shared database (the `d2u.registry` package) rather than in settings. The Tuning app's UI for managing them arrives in R4; until then the seeded defaults apply:
+
+| Seeded entry | Value |
+| --- | --- |
+| Active generation model | `Gemini 3.8 Flash` (`gemini/gemini-3.8-flash`, key in `GEMINI_API_KEY`, `reasoning_effort: medium`) |
+| Default judge | `Claude Sonnet 4.5` (`anthropic/claude-sonnet-4-5`, key in `ANTHROPIC_API_KEY`) |
+| Active prompts | `baseline` for OpenAPI and Python, for both the `llm` and `hybrid` strategies, from `shared/src/d2u/prompts/` |
+
+To change the active model before R4, use Plain's shell from either app:
+
+```bash
+uv run --directory docs_app plain shell
+>>> from d2u.registry.models import ModelConfig, RuntimeSettings
+>>> settings = RuntimeSettings.load()
+>>> settings.active_model = ModelConfig.query.get(name="Claude Sonnet 4.5")
+>>> settings.update()
+```
+
+A model's parameters are passed to LiteLLM as given, except that Gemini 3 models never receive `temperature`, `top_p` or `top_k`, and keys the client sets itself (such as `api_key`) are refused. API keys are never stored; a model only names the environment variable that holds its key.
 
 ## Building the Application
 
@@ -208,7 +221,7 @@ The `Dockerfile` has three stages:
 | --- | --- |
 | `base` | The app and its runtime dependencies |
 | `test` | Dev dependencies and headless Chromium; runs the full suite |
-| `prod` | The Docs app with compiled, fingerprinted assets; runs `plain server` (a Tuning app image arrives in R6) |
+| `prod` | The Docs app alone, with only its own dependencies (the build fails if DSPy is importable) and compiled assets; runs `plain server` (a Tuning app image arrives in R6) |
 
 ```bash
 docker build --target prod -t docs-to-ui:prod .
@@ -274,15 +287,15 @@ Select **Upload file** and choose a `.yaml`, `.yml`, `.json` or `.py` file, or a
 
 ### 3. Follow progress
 
-The generation page shows the stage stepper and "Enriched N of M batches". It refreshes itself every two seconds and switches to the finished page when the job is done.
+The generation page shows the stage stepper and, for a large input split into parts, "Generated N of M parts". It refreshes itself every two seconds and switches to the finished page when the job is done.
 
 ### 4. Read the page
 
-The top card shows the status, model and program version, **Files read (N included, M skipped)** (expand it to see every file and why any were skipped) and the trace summary strip. Below it is the doc page. Use the sidebar to jump to an operation, click a group name to collapse it, and click an operation's header to collapse its card.
+The top card shows the status, strategy, model, prompt version, tokens and cost, **Files read (N included, M skipped)** (expand it to see every file and why any were skipped) and the trace summary strip. Below it is the doc page. Use the sidebar to jump to an operation, click a group name to collapse it, and click an operation's header to collapse its card.
 
 ### 5. Fix failures
 
-If generation fails, the page shows the error type and, for input errors, the file and line. Fix your input and generate again, or click **Retry** to rerun the same input (useful after a provider error or timeout). **Regenerate** on a finished page reruns it with the current model and program version.
+If generation fails, the page shows the error type and, for input errors, the file and line. Fix your input and generate again, or click **Retry** to rerun the same input (useful after a provider error or timeout). **Regenerate** on a finished page reruns it with the current active model and prompt version.
 
 ### 6. Give feedback
 
@@ -300,23 +313,9 @@ Click **View trace** on a generation, or **Traces** in the header for the list, 
 
 Set the four `LANGFUSE_*` variables and `PLAIN_TELEMETRY_BACKENDS=["native","langfuse"]` (or just `["langfuse"]`), then restart `plain dev`. Traces appear in your Langfuse project, feedback appears as `user_feedback` scores, and **View trace** links to the first backend with a viewer (native, if active).
 
-### 10. Evaluate and optimize the programs
+### 10. Evaluate and tune
 
-Until the Tuning app's UI arrives (R4 and R5), the pipeline runs from the command line. These commands call the real model and read `GEMINI_API_KEY` from `tuning_app/.env`:
-
-```bash
-# Score a program version on the dev set
-uv run --directory tuning_app --env-file .env python -m dspy_pipeline.optimize evaluate --version baseline
-
-# Optimize EnrichOperations on the train set and save a new version
-# (MIPROv2 needs the optional optimize group: uv sync --all-packages --group optimize)
-uv run --directory tuning_app --env-file .env python -m dspy_pipeline.optimize optimize --version v1
-
-# Turn 👎 feedback with comments into dataset candidates to review by hand
-uv run --directory tuning_app --env-file .env python -m dspy_pipeline.optimize export-feedback --output candidates.jsonl
-```
-
-Each prints a JSON report. To promote a version, commit its files in `artifacts/programs/` and set `PLAIN_LLM_PROGRAM_VERSION`. The same commands run on GitHub from the **evals** workflow (Actions → evals → Run workflow), which needs a `GEMINI_API_KEY` repository secret.
+Evaluation and tuning move into the Tuning app's UI in R4 (models, gold sets, eval runs and comparisons) and R5 (DSPy optimization and prompt promotion). The v6 command-line pipeline and its program artifacts are retired; its datasets (`tuning_app/dspy_pipeline/datasets/`) and metric code stay as the starting point for R4.
 
 ### 11. Switch themes
 
@@ -330,8 +329,10 @@ docs-to-ui/
 ├── shared/                      The d2u library (workspace member)
 │   └── src/d2u/
 │       ├── schemas/             Pydantic contracts: ApiSurface, Operation, DocPage, ...
-│       ├── generation/          Batching, merging, pages without the LLM (Plain-free)
-│       ├── llm/                 v6 DSPy programs, generator and artifacts (until R2)
+│       ├── generation/          Plain-free: LiteLLM client, prompts, splitting, ID derivation,
+│       │                        strategies (llm, hybrid, parser), batching and merging
+│       ├── prompts/             Baseline prompt files per language and strategy, overview prompt
+│       ├── registry/            Plain package: ModelConfig, PromptVersion, RuntimeSettings, seeds
 │       ├── sources/             Bundles, the safe zip reader, adapters (OpenAPI, Python), registry
 │       ├── generations/         Plain package: Generation and Feedback models and settings
 │       ├── telemetry/           Plain package: tracer provider, backends, api, MirrorFeedbackJob
@@ -351,19 +352,18 @@ docs-to-ui/
 │   │   ├── settings.py, urls.py Every route under /tuning/
 │   │   ├── templates/           App shell
 │   │   └── dashboard/           Placeholder dashboard (R4 builds the real UI)
-│   └── dspy_pipeline/           Datasets, metrics and optimize.py (until the UI replaces it)
-├── artifacts/programs/          Versioned DSPy program artifacts (baseline committed)
+│   └── dspy_pipeline/           Datasets and metric code, the starting point for R4
 ├── design/docs-to-ui/           OpenDesign package: manifest, DESIGN.md, tokens, reference mockups
 ├── scripts/
 │   ├── install                  First-time setup
 │   └── sync_design.py           Validates the design package and copies its tokens
 ├── tests/
-│   ├── fixtures/                OpenAPI, Python and DummyLM fixtures, adapter contracts
+│   ├── fixtures/                OpenAPI and Python inputs, fake-model responses, adapter contracts
 │   ├── shared/                  Mirrors d2u (run by the Docs app's test suite)
 │   ├── docs_app/                Docs app unit and integration tests
 │   ├── tuning_app/              Tuning app and pipeline tests
 │   └── e2e/                     Playwright journeys against the Docs app
-├── .github/workflows/           ci.yml (every push), evals.yml (manual)
+├── .github/workflows/           ci.yml (every push; evals.yml returns in R5)
 ├── Dockerfile                   base, test and prod stages
 ├── docker-compose.yml           Postgres for development
 ├── docker-compose.test.yml      The containerized suite
@@ -381,16 +381,15 @@ The form posts to `/generations`. The view stores the raw input bytes on a new `
 
 ### The job
 
-`GenerateDocJob` first claims the generation with a single `pending → running` update, so running it twice never processes anything twice. Then:
+`GenerateDocJob` first claims the generation with a single `pending → running` update, so running it twice never processes anything twice. It records the active model at that moment. Then:
 
-1. **Bundle.** The input becomes a `SourceBundle`. A zip is read in memory (see below) and filtered to the chosen adapter's files; the manifest of included and skipped files is saved.
+1. **Bundle.** The input becomes a `SourceBundle`. A zip is read in memory (see below) and filtered to the chosen language's files; the manifest of included and skipped files is saved.
 2. **Detect.** Each adapter scores the bundle, and the highest score wins unless you chose a language.
-3. **Extract.** The adapter produces an `ApiSurface` with a real parser. No LLM is involved.
-4. **Enrich.** Operations are grouped (by tag or path for OpenAPI, by module or class for Python) and packed into batches under the token budget. Up to `LLM_MAX_CONCURRENCY` batches run in parallel, each with one retry on invalid output. If 10% of batches or fewer fail, those operations render from their source descriptions; more than 10% fails the generation with `validation_error`, or `provider_error` when the model provider was at fault.
-5. **Overview.** `WriteOverview` writes the overview and sidebar groups. If it fails, a deterministic overview is used.
-6. **Merge.** Operation, parameter and group IDs the LLM invented are dropped and recorded as span events, and the `DocPage` is stored.
+3. **Check.** For the `llm` strategy, the input is parsed only to check its syntax, so broken input fails with its file and line before any model call.
+4. **Generate.** The active prompt version is rendered into messages (instructions, few-shot examples, then the files, naming the OpenAPI entry file) and sent to the active model with `GeneratedPage` as the structured-output schema. An answer that doesn't validate is retried once with the validation error. An input too large for the model is split into parts, keeping directories together; parts run in parallel and one more call writes the overview.
+5. **Merge.** IDs are derived in code, source locations that don't exist in the input are dropped, and the `DocPage` is stored with the tokens, cost and latency.
 
-The soft time limit is checked between batches. A worker that dies mid-job marks the generation `worker_lost`.
+The `hybrid` strategy instead extracts the structure with a parser, sends batches of operations for descriptions (a failed batch shows its operations "Not enriched" unless more than 10% fail), and writes the overview. The `parser` strategy calls no model. The soft time limit is checked between calls. A worker that dies mid-job marks the generation `worker_lost`, and an unexpected error `internal_error`.
 
 ### Stable IDs
 
@@ -410,7 +409,7 @@ Archives are read with `zipfile` from the stored bytes and never extracted to di
 
 ### Tracing
 
-All instrumentation is OpenTelemetry: Plain's request, database and job spans, OpenInference spans for DSPy, and the job's own stage spans. At startup `d2u.telemetry` attaches to an existing tracer provider or installs one, adds a baggage processor that copies `docs.generation_id` and `docs.program_version` onto every span, and adds one processor per backend. The job starts its root span as a child of the stored request context, so request, job and LLM spans share one trace ID; an integration test enforces this. The native exporter writes batches with its own psycopg connection in one parameterized statement, truncates long attributes and never raises. Only `d2u.telemetry` knows which backends exist.
+All instrumentation is OpenTelemetry: Plain's request, database and job spans, OpenInference spans for every LiteLLM call, and the job's own stage spans. At startup `d2u.telemetry` attaches to an existing tracer provider or installs one, adds a baggage processor that copies `docs.generation_id`, `docs.model` and `docs.prompt_version` onto every span, and adds one processor per backend. The job starts its root span as a child of the stored request context, so request, job and LLM spans share one trace ID; an integration test enforces this. The native exporter writes batches with its own psycopg connection in one parameterized statement, truncates long attributes and never raises. Only `d2u.telemetry` knows which backends exist.
 
 ### Untrusted text
 
@@ -420,20 +419,9 @@ Everything taken from the input and everything the LLM writes is treated as untr
 
 Component CSS uses only `var(--…)` tokens from `tokens.css`, with no raw colors and no theme-specific rules; a unit test enforces both. Light values live in `:root`. Dark values override the same tokens under `[data-theme="dark"]`, and under `prefers-color-scheme: dark` when no theme is forced.
 
-### The optimization pipeline
+### Evaluation and tuning (Tuning app)
 
-`tuning_app/dspy_pipeline/optimize.py` builds examples from the datasets exactly as the app would (the same adapters and batching), runs a program version, and scores each batch with the SPEC §13 metric:
-
-| Component | What it checks | Weight |
-| --- | --- | --- |
-| Schema validity | Output parses as `BatchEnrichment` | Gate: 0 if invalid |
-| Coverage | Share of operations documented | 0.25 |
-| Fidelity | No invented operations or parameters | 0.25 |
-| Consistency | Doesn't contradict the source (judge) | 0.15 |
-| Example validity | JSON and Python parse; curl URLs match a real path | 0.15 |
-| Prose quality | Judge rubric, 1–5 | 0.20 |
-
-`optimize` runs DSPy's BootstrapFewShot (or MIPROv2 with `--optimizer miprov2`), scores the result on the dev set and saves a new artifact version with its metadata.
+Evals will always run the production code path (`d2u.generation`), and DSPy will only search for better prompts, which reach the Docs app as plain prompt versions. Faithfulness and component accuracy against curated gold sets are required metrics (SPEC §9.5). The v6 metric code in `tuning_app/dspy_pipeline/metrics/` covers coverage, fidelity, example validity and judge-rated consistency and prose, and is the starting point for R4.
 
 ## Code Quality
 
@@ -489,38 +477,39 @@ The full containerized suite, the same checks CI runs, with nothing installed lo
 docker compose -f docker-compose.test.yml up --build --abort-on-container-exit
 ```
 
-Tests never call a real LLM (`docs_app/.env.test` sets `LLM_MODEL=fake` with DummyLM fixtures) and can't reach the internet: `pytest-socket` blocks every connection except localhost.
+Tests never call a real LLM: database tests make a fake model active, which answers through LiteLLM's mock responses from `tests/fixtures/llm/fake.json`, and E2E servers and workers run without any provider keys. Tests can't reach the internet either: `pytest-socket` blocks every connection except localhost.
 
 ### Test structure
 
 ```
 tests/shared/              The d2u library: adapters (including the contract suite), zip safety,
-                           batching, merge, generator, artifacts round-trip, exporter mapping,
-                           trace viewer logic, backend factory, design sync, CSS token rule
-tests/docs_app/            Docs app: presentation, sanitizer, job states and failures, zips,
+                           LiteLLM client, prompts, splitting, ID derivation, strategies, registry,
+                           exporter mapping, trace viewer logic, backend factory, design sync, CSS rule
+tests/docs_app/            Docs app: presentation, sanitizer, job states and failures, strategies, zips,
+                           the no-DSPy guard,
                            feedback and mirroring, native export and trace viewer, telemetry
                            wiring (one trace ID)
-tests/tuning_app/          Tuning app skeleton, pipeline metrics and datasets, feedback export
+tests/tuning_app/          Tuning app skeleton, metric code and datasets
 tests/e2e/                 Paste, zip upload, progress, failure and retry, trace viewer,
                            example tabs and copy, feedback, exports opened from disk
-tests/fixtures/            OpenAPI (single and multi-file), a Python package, DummyLM responses,
+tests/fixtures/            OpenAPI (single and multi-file), a Python package, fake-model responses,
                            and each adapter's contract.json
 ```
 
 ## Development Status
 
-v6 (milestones M1–M5) is complete, and v7 is in progress on the `redesign/v7` branch: R1 (the workspace restructure) is done, R2–R6 are planned. See the milestone table in [About This Project](#about-this-project) and `SPEC.md` §18.
+v6 (milestones M1–M5) is complete, and v7 is in progress on the `redesign/v7` branch: R1 (the workspace restructure) and R2 (direct LLM generation and the registry) are done; R3–R6 are planned. See the milestone table in [About This Project](#about-this-project) and `SPEC.md` §18.
 
 Known gaps and deliberate differences from `SPEC.md`:
 
-- **DSPy in the shared library until R2.** Because R1 doesn't change behavior, the Docs app still generates through DSPy, so the v6 DSPy code sits in `d2u.llm` and `dspy` is a `d2u` dependency. R2 removes both; after that, only the Tuning app uses DSPy.
-- **`optuna` is opt-in.** It's in the Tuning app's `optimize` group rather than its main dependencies: optuna brings numpy into the shared environment, and a half-imported numpy races with psycopg's numpy adapters when the Docs app's worker starts. MIPROv2 needs it; install it with `uv sync --all-packages --group optimize`.
+- **No management UI yet.** Models, prompt versions and the active choices can only be changed from Plain's shell until the Tuning app's UI arrives in R4.
+- **The trace backend is still a setting.** Choosing it in the UI arrives in R3; until then it's `PLAIN_TELEMETRY_BACKENDS`.
+- **One shared development environment.** The uv workspace installs every member's dependencies into one `.venv`, so DSPy is installed there for the Tuning app. The Docs app never imports it (a test checks), and its production image contains only its own dependencies.
+- **`optuna` is opt-in.** It's in the Tuning app's `optimize` group: optuna brings numpy into the shared environment, and a half-imported numpy races with psycopg's numpy adapters when the Docs app's worker starts. Install it with `uv sync --all-packages --group optimize`.
 - **No pre-commit hook.** Plain's hook runs `plain` from the repository root, where there is no app. Run the checks in [Code Quality](#code-quality) instead.
-- **First promoted artifact (v6 M4).** Only the unoptimized `baseline` is committed. v7 replaces program artifacts with prompt versions in R2 and R5.
 - **No `plain.toolbar`.** It depends on `plain-tailwind`, whose build hooks break `plain assets compile` and conflict with the decided "no Tailwind" rule.
 - **Whole-page feedback** stores an empty `operation_id` instead of NULL, following Plain's rule against nullable text columns.
 - **URLs** follow Plain's default of no trailing slash (`/generations/1`, `/traces/<id>`).
-- **`ApiSurface`** has no description field, so an API's own description text isn't passed to the overview writer.
 
 ## Troubleshooting
 
@@ -541,7 +530,7 @@ No job worker is running. The Docs app's `plain dev` starts one; otherwise run `
 
 ### Generations fail with "Model provider error"
 
-Check that `GEMINI_API_KEY` is set in `docs_app/.env` and valid, then click **Retry**. To try the app without a key, use the fake model described in [Configuration](#configuration).
+Check that the active model's key (for the seeded model, `GEMINI_API_KEY`) is set in `docs_app/.env` and valid, then click **Retry**. To try the app without a key, use the fake model described in [Configuration](#configuration).
 
 ### The app won't start: "The langfuse telemetry backend needs …"
 

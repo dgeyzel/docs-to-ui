@@ -1,7 +1,6 @@
-"""Structured data exchanged with the LLM and stored as a generation's `DocPage`.
+"""The stored and rendered page (`DocPage`) and the structures inside it.
 
-The LLM only ever produces these models, never markup. This module must stay
-importable without Plain so the optimization pipeline can use it directly.
+Plain-free, so both apps and the generation code can use it directly.
 """
 
 from typing import Literal
@@ -82,14 +81,6 @@ class OperationDocs(BaseModel):
     examples: list[Example]
 
 
-class BatchEnrichment(BaseModel):
-    """Output of one `EnrichOperations` call."""
-
-    model_config = ConfigDict(frozen=True)
-
-    operations: list[OperationDocs]
-
-
 class Overview(BaseModel):
     """Page overview and navigation groups (group name to operation IDs)."""
 
@@ -99,16 +90,22 @@ class Overview(BaseModel):
     groups: dict[str, list[str]]
 
 
+Strategy = Literal["llm", "hybrid", "parser"]
+
+
 class DocPage(BaseModel):
     """A complete generated page.
 
     Operations in `surface` without a matching entry in `operations` are
-    rendered as "not enriched", using their source descriptions.
+    rendered as "not enriched", using their source descriptions. Pages
+    stored before schema version 2 have no strategy and were built the way
+    `hybrid` builds them.
     """
 
     model_config = ConfigDict(frozen=True)
 
-    schema_version: int = 1
+    schema_version: int = 2
+    strategy: Strategy = "hybrid"
     surface: ApiSurface
     overview: Overview
     operations: list[OperationDocs]
