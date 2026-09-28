@@ -40,9 +40,11 @@ COLUMNS = (
     "resource",
     "generation_id",
     "is_llm",
+    "eval_run_id",
 )
 TRUNCATION_MARKER = "…[truncated]"
 GENERATION_ID_ATTRIBUTE = "docs.generation_id"
+EVAL_RUN_ID_ATTRIBUTE = "docs.eval_run_id"
 OPENINFERENCE_KIND = "openinference.span.kind"
 WARNING_INTERVAL_S = 60.0
 
@@ -66,6 +68,7 @@ class SpanRow:
     resource: dict[str, Any]
     generation_id: int | None
     is_llm: bool
+    eval_run_id: int | None
 
     def values(self) -> tuple[Any, ...]:
         """Column values, with JSON columns wrapped for psycopg."""
@@ -85,6 +88,7 @@ class SpanRow:
             Jsonb(self.resource),
             self.generation_id,
             self.is_llm,
+            self.eval_run_id,
         )
 
 
@@ -150,6 +154,7 @@ def span_to_row(span: ReadableSpan, *, max_attribute_bytes: int) -> SpanRow:
         resource=_attributes(span.resource.attributes, max_attribute_bytes),
         generation_id=_generation_id(attributes.get(GENERATION_ID_ATTRIBUTE)),
         is_llm=attributes.get(OPENINFERENCE_KIND) == "LLM",
+        eval_run_id=_generation_id(attributes.get(EVAL_RUN_ID_ATTRIBUTE)),
     )
 
 

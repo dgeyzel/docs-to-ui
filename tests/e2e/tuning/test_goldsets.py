@@ -39,7 +39,9 @@ def test_a_gold_example_is_created_edited_and_approved(tuning_browser) -> None:
     expect(page.get_by_text("approved: 1 train")).to_be_visible()
 
 
-def test_an_example_is_seeded_from_the_fake_model(tuning_browser, tuning_worker) -> None:
+def test_an_example_is_seeded_from_the_fake_model(
+    tuning_browser, tuning_worker
+) -> None:
     page = tuning_browser.new_page()
     page.goto("/tuning/goldsets")
     page.get_by_label("Name").fill("Seeded")

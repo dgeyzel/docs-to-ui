@@ -1,4 +1,34 @@
 {
+  "Documentation to judge:": {
+    "claims": [
+      {
+        "operation_id": "GET /pets",
+        "claim": "Lists pets.",
+        "supported": true,
+        "rationale": "The path is a list endpoint."
+      },
+      {
+        "operation_id": "GET /pets",
+        "claim": "Returns at most 100 pets.",
+        "supported": false,
+        "rationale": "No limit is stated."
+      },
+      {
+        "operation_id": "",
+        "claim": "The API manages pets.",
+        "supported": true,
+        "rationale": "The title says so."
+      },
+      {
+        "operation_id": "",
+        "claim": "The API is stable.",
+        "supported": true,
+        "rationale": "Stated in the info block."
+      }
+    ],
+    "prose_quality": 4,
+    "prose_rationale": "Clear and concise."
+  },
   "Operations to summarize:": {
     "title": "Petstore Plus API",
     "overview_md": "The **Petstore Plus API** manages pets and orders."

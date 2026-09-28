@@ -156,3 +156,23 @@ def connection_check_messages() -> list[Message]:
             "content": f"{CONNECTION_CHECK_MARKER} answer with ok set to true.",
         }
     ]
+
+
+JUDGE_MARKER = "Documentation to judge:"
+
+
+def judge_instructions() -> str:
+    """Instructions for the eval judge (faithfulness claims and prose quality)."""
+    return (files("d2u.prompts") / "judge.md").read_text(encoding="utf-8")
+
+
+def judge_messages(source_files: dict[str, str], documentation: str) -> list[Message]:
+    """Messages asking a judge to grade `documentation` against the source files."""
+    return [
+        {"role": "system", "content": judge_instructions()},
+        {
+            "role": "user",
+            "content": f"{JUDGE_MARKER}\n```json\n{documentation}\n```\n\n"
+            + format_files(source_files),
+        },
+    ]

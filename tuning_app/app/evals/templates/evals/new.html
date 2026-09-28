@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}New eval run · Docs-to-UI Tuning{% endblock %}
+
+{% macro select(field, label, choices, blank="", hint="") -%}
+<div class="form-group">
+    <label class="form-label" for="{{ field.html_id }}">{{ label }}</label>
+    <select class="select" id="{{ field.html_id }}" name="{{ field.html_name }}">
+        {% if blank %}<option value="">{{ blank }}</option>{% endif %}
+        {% for value, text in choices %}
+        <option value="{{ value }}" {% if value == field.value()|string %}selected{% endif %}>{{ text }}</option>
+        {% endfor %}
+    </select>
+    {% if hint %}<span class="hint">{{ hint }}</span>{% endif %}
+    {% for error in field.errors %}<span class="form-error" role="alert">{{ error }}</span>{% endfor %}
+</div>
+{%- endmacro %}
+
+{% block content %}
+<main class="app-container">
+    <form class="card settings-form" method="post" action="{{ url('evals:create') }}" aria-labelledby="new-run-heading">
+        <h1 class="card-title" id="new-run-heading">New eval run</h1>
+        {% for error in form.non_field_errors %}<p class="form-error" role="alert">{{ error }}</p>{% endfor %}
+        {{ select(form.gold_set, "Gold set", form.gold_set.field.choices) }}
+        {{ select(form.split, "Split", form.split.field.choices, hint="Only approved examples are evaluated.") }}
+        {{ select(form.strategy, "Strategy", form.strategy.field.choices) }}
+        {{ select(form.model, "Generation model", form.model.field.choices, blank="None (parser strategy)") }}
+        {{ select(form.prompt_version, "Prompt version", form.prompt_version.field.choices, blank="The active version for the set's language", hint="Must match the gold set's language and the strategy.") }}
+        {{ select(form.judge, "Judge model", form.judge.field.choices, hint="Grades faithfulness and prose. It should differ from the generation model.") }}
+        {% if same_judge %}<p class="form-error" role="alert">The judge is also the generation model, so the model grades its own output.</p>{% endif %}
+        <div class="form-group">
+            <label class="form-label" for="{{ form.concurrency.html_id }}">Examples at once</label>
+            <input class="file-input" id="{{ form.concurrency.html_id }}" name="{{ form.concurrency.html_name }}" inputmode="numeric" value="{{ form.concurrency.value() or '' }}">
+            <span class="hint">1 to {{ max_concurrency }}.</span>
+            {% for error in form.concurrency.errors %}<span class="form-error" role="alert">{{ error }}</span>{% endfor %}
+        </div>
+        <p class="hint">Scored with metrics v{{ metric_version.version }}.</p>
+        <div><button type="submit" class="button button-primary">Start eval run</button></div>
+    </form>
+</main>
+{% endblock %}

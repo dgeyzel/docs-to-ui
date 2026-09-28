@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block title %}Metrics · Docs-to-UI Tuning{% endblock %}
+
+{% macro weight_input(name, label, default) -%}
+<div class="form-group">
+    <label class="form-label" for="{{ form[name].html_id }}">{{ label }}</label>
+    <input class="file-input mono-text" id="{{ form[name].html_id }}" name="{{ form[name].html_name }}" inputmode="decimal" value="{{ form[name].value() if form[name].value() is not none else '' }}">
+    <span class="hint">Default {{ default }}</span>
+    {% for error in form[name].errors %}<span class="form-error" role="alert">{{ error }}</span>{% endfor %}
+</div>
+{%- endmacro %}
+
+{% block content %}
+<main class="app-container">
+    <section class="card" aria-labelledby="metrics-heading">
+        <h1 class="card-title" id="metrics-heading">Metrics</h1>
+        <p class="hint">Every eval run records the metric version it was scored with. An output that isn't a valid page scores 0 on everything.</p>
+        <dl class="metric-definitions">
+            <dt>Faithfulness</dt><dd>Half deterministic (the share of generated operations, parameters and types found in the gold page or the parser's output), half judge (the share of the judge's claims that the source supports).</dd>
+            <dt>Component accuracy</dt><dd>Field-level agreement with the gold page: operation F1 by derived ID, then parameter names, locations, types, required flags and defaults, returns, signatures and groups of matched operations, as a weighted mean.</dd>
+            <dt>Coverage</dt><dd>The share of gold operations present.</dd>
+            <dt>Example validity</dt><dd>The share of checkable examples that hold up: JSON parses, Python parses, curl paths exist in the gold surface. No checkable examples scores 0.</dd>
+            <dt>Prose quality</dt><dd>The judge's 1–5 rating, scaled to 0–1.</dd>
+        </dl>
+        <p class="meta-text">Current: metrics v{{ current.version }}.</p>
+    </section>
+
+    <form class="card settings-form" method="post" action="{{ url('metrics:index') }}" aria-labelledby="weights-heading">
+        <h2 class="card-title" id="weights-heading">Weights</h2>
+        {% if saved %}<p class="form-success" role="status">Saved as metrics v{{ current.version }}. New runs use it.</p>{% endif %}
+        {% for error in form.non_field_errors %}<p class="form-error" role="alert">{{ error }}</p>{% endfor %}
+        <p class="hint">Weights are relative: each score is the weighted mean, so they don't need to add up to 1.</p>
+        <fieldset class="form-group choice-group">
+            <legend class="form-label">Metric weights</legend>
+            <div class="param-grid">
+                {% for name, label in metric_labels.items() %}{{ weight_input("metric_" ~ name, label, default_metrics[name]) }}{% endfor %}
+            </div>
+        </fieldset>
+        <fieldset class="form-group choice-group">
+            <legend class="form-label">Component weights (inside component accuracy)</legend>
+            <div class="param-grid">
+                {% for name, label in component_labels.items() %}{{ weight_input("component_" ~ name, label, default_components[name]) }}{% endfor %}
+            </div>
+        </fieldset>
+        <div class="form-group">
+            <label class="form-label" for="{{ form.notes.html_id }}">What changed</label>
+            <input class="file-input" id="{{ form.notes.html_id }}" name="{{ form.notes.html_name }}" value="{{ form.notes.value() or '' }}">
+        </div>
+        <div><button type="submit" class="button button-primary">Save as a new version</button></div>
+    </form>
+
+    <section class="card" aria-labelledby="history-heading">
+        <h2 class="card-title" id="history-heading">History</h2>
+        <ol class="history-list">
+            {% for version in versions %}
+            <li><strong>v{{ version.version }}</strong> <span class="meta-text">{{ localtime(version.created_at).strftime("%b %d, %H:%M") }}</span> {{ version.notes }}
+                <span class="hint mono-text">{% for name, value in version.weights.items() %}{{ name }} {{ value }}{% if not loop.last %}, {% endif %}{% endfor %}</span></li>
+            {% endfor %}
+        </ol>
+    </section>
+</main>
+{% endblock %}

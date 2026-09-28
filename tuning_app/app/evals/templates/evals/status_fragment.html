@@ -1,0 +1,11 @@
+<p
+    class="connection-test"
+    id="run-status"
+    hx-get="{{ url('evals:status', id=run.id) }}"
+    hx-trigger="every 2s"
+    hx-swap="outerHTML"
+>
+    <span class="status-pill status-{{ run.status }}">{{ run.status }}</span>
+    <span>{{ run.examples_done }} of {{ run.examples_total or "?" }} examples done.</span>
+    {% if run.status == "pending" %}<span class="hint">Waiting for the Tuning app's worker…</span>{% endif %}
+</p>

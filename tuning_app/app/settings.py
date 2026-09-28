@@ -23,6 +23,7 @@ INSTALLED_PACKAGES = [
     "app.settings_ui",
     "app.models_ui",
     "app.goldsets",
+    "app.evals",
 ]
 
 MIDDLEWARE = [

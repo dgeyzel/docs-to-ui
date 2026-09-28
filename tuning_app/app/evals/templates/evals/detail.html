@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% use_elements %}
+
+{% macro pct(value) -%}{{ "%.3f"|format(value) }}{%- endmacro %}
+
+{% block title %}Eval run #{{ run.id }} · Docs-to-UI Tuning{% endblock %}
+
+{% block content %}
+<main class="app-container">
+    <section class="card" aria-labelledby="run-heading">
+        <h1 class="card-title" id="run-heading">Eval run #{{ run.id }}</h1>
+        <p class="meta-text">
+            <a href="{{ url('goldsets:detail', id=run.gold_set.id) }}">{{ run.gold_set.name }}</a> · {{ run.split }}
+            · {{ run.strategy }}{% if run.model_name %} · {{ run.model_name }}{% endif %}{% if run.prompt_label %} · <span class="mono-text">{{ run.prompt_label }}</span>{% endif %}
+            · judge {{ run.judge_name }} · metrics v{{ run.metric_version.version }}
+            {% if run.gold_set_hash %}· gold hash <span class="mono-text" title="{{ run.gold_set_hash }}">{{ run.gold_set_hash[:12] }}</span>{% endif %}
+        </p>
+        {% if run.self_judged %}<p class="form-error" role="alert">The judge is also the generation model, so the model graded its own output.</p>{% endif %}
+        {% if run.finished %}
+        <p class="connection-test">
+            <StatusPill status={run.status} />
+            <span>{{ run.examples_done }} of {{ run.examples_total }} examples</span>
+            <span class="mono-text">{{ run.input_tokens }} in / {{ run.output_tokens }} out tokens</span>
+            <span class="mono-text">generation ${{ "%.4f"|format(run.cost_usd) }} · judge ${{ "%.4f"|format(run.judge_cost_usd) }}</span>
+            <span class="mono-text">{{ run.latency_ms }} ms of model time</span>
+            {% if run.trace_id %}<a href="{{ url('traces:list') }}?eval_run={{ run.id }}">Traces</a>{% endif %}
+        </p>
+        {% if run.error %}<p class="form-error" role="alert">{{ run.error }}</p>{% endif %}
+        {% else %}
+        {% include "evals/status_fragment.html" %}
+        {% endif %}
+    </section>
+
+    {% if total %}
+    <section class="card" aria-labelledby="summary-heading">
+        <h2 class="card-title" id="summary-heading">Summary</h2>
+        <p><strong>Total {{ pct(total.mean) }}</strong> <span class="hint">95% interval {{ pct(total.low) }}–{{ pct(total.high) }}</span></p>
+        <div class="table-scroll">
+            <table class="data-table">
+                <thead><tr><th scope="col">Metric</th><th scope="col">Weight</th><th scope="col">Mean</th><th scope="col">95% interval</th></tr></thead>
+                <tbody>
+                    {% for row in metric_rows %}
+                    <tr><td>{{ row.label }}</td><td class="mono-text">{{ row.weight }}</td><td class="mono-text">{{ pct(row.mean) }}</td><td class="mono-text">{{ pct(row.low) }}–{{ pct(row.high) }}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <details>
+            <summary class="form-label">Component accuracy by component</summary>
+            <div class="table-scroll">
+                <table class="data-table">
+                    <thead><tr><th scope="col">Component</th><th scope="col">Weight</th><th scope="col">Mean</th><th scope="col">95% interval</th></tr></thead>
+                    <tbody>
+                        {% for row in component_rows %}
+                        <tr><td>{{ row.label }}</td><td class="mono-text">{{ row.weight if row.weight is not none else "—" }}</td><td class="mono-text">{{ pct(row.mean) }}</td><td class="mono-text">{{ pct(row.low) }}–{{ pct(row.high) }}</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </details>
+    </section>
+    {% endif %}
+
+    {% if results %}
+    <section class="card" aria-labelledby="results-heading">
+        <h2 class="card-title" id="results-heading">Examples</h2>
+        <div class="table-scroll">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Example</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Total</th>
+                        {% for name in metric_names %}<th scope="col">{{ metric_labels[name] }}</th>{% endfor %}
+                        <th scope="col">Cost</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for result in results %}
+                    <tr>
+                        <td>{{ result.label }}{% if result.error %}<br><span class="form-error">{{ result.error }}</span>{% endif %}</td>
+                        <td><StatusPill status={result.status} /></td>
+                        <td class="mono-text">{{ pct(result.total) }}</td>
+                        {% for name in metric_names %}<td class="mono-text">{{ pct(result.scores.metrics[name]) }}</td>{% endfor %}
+                        <td class="mono-text">${{ "%.4f"|format(result.cost_usd + result.judge_cost_usd) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% endif %}
+</main>
+{% endblock %}

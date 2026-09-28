@@ -54,6 +54,17 @@ def test_span_to_row_maps_identity_timing_and_status() -> None:
     assert row.events[0]["name"] == "merge.unknown_operation_ids"
     assert row.events[0]["attributes"] == {"docs.ids": ["X"]}
     assert len(row.values()) == len(COLUMNS)
+    assert row.eval_run_id is None
+
+
+def test_span_to_row_maps_the_eval_run() -> None:
+    def build(tracer: trace.Tracer) -> None:
+        with tracer.start_as_current_span("eval.example") as span:
+            span.set_attribute("docs.eval_run_id", "7")
+
+    (span,) = finished_spans(build)
+
+    assert span_to_row(span, max_attribute_bytes=1000).eval_run_id == 7
 
 
 def test_span_to_row_truncates_long_attribute_values() -> None:

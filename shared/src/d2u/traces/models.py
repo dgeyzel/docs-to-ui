@@ -27,6 +27,9 @@ class TraceSpan(postgres.Model):
         allow_null=True, required=False, default=None
     )
     is_llm: Field[bool] = types.BooleanField(default=False)
+    eval_run_id: Field[int | None] = types.BigIntegerField(
+        allow_null=True, required=False, default=None
+    )
 
     model_options = postgres.Options(
         constraints=[
@@ -40,6 +43,9 @@ class TraceSpan(postgres.Model):
                 fields=["generation_id"], name="traces_tracespan_generation_id_idx"
             ),
             postgres.Index(fields=["is_llm"], name="traces_tracespan_is_llm_idx"),
+            postgres.Index(
+                fields=["eval_run_id"], name="traces_tracespan_eval_run_id_idx"
+            ),
             postgres.Index(
                 fields=["start_time"], name="traces_tracespan_start_time_idx"
             ),

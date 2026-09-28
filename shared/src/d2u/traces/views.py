@@ -36,8 +36,13 @@ class TraceListView(TemplateView):
         status = self.request.query_params.get("status", "")
         if status not in STATUS_FILTERS:
             status = ""
-        context["traces"] = recent_traces(generation_id=generation_id, status=status)
+        raw_eval_run = self.request.query_params.get("eval_run", "").strip()
+        eval_run_id = int(raw_eval_run) if raw_eval_run.isdigit() else None
+        context["traces"] = recent_traces(
+            generation_id=generation_id, status=status, eval_run_id=eval_run_id
+        )
         context["generation_filter"] = raw_generation if generation_id else ""
+        context["eval_run_filter"] = raw_eval_run if eval_run_id else ""
         context["status_filter"] = status
         context["trace_backends_label"] = selection_summary(trace_backends())
         return context

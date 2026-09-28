@@ -371,6 +371,8 @@ The run page shows progress, the optimizer's trial log, the candidate's diff aga
 | **Prose quality** | Judge rubric, 1–5 | 0.20 |
 | Tokens, cost, latency | Reported, not scored | — |
 
+- Faithfulness = 0.5 × deterministic + 0.5 × judge. The deterministic half is the share of the output's operations, parameters and parameter types found in the gold page or the parser's surface; the judge half is the share of the judge's claims that the source supports. **[Decided]**
+- Default component weights inside component accuracy: operations F1 0.30, parameter names 0.15, locations 0.10, types 0.10, required flags 0.10, defaults 0.05, returns 0.05, signatures 0.10, groups 0.05. **[Default]**
 - Weights and the component weights inside component accuracy are editable in the Metrics section. A change creates a new metric version, which is recorded on every run.
 - Metric code lives in `tuning_app` (Plain-free modules). It reuses v6's pure metric functions where they still apply.
 

@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% use_elements %}
+
+{% block title %}Evals · Docs-to-UI Tuning{% endblock %}
+
+{% block content %}
+<main class="app-container">
+    <section class="card" aria-labelledby="evals-heading">
+        <h1 class="card-title" id="evals-heading">Eval runs</h1>
+        <p class="hint">Each run generates every approved example of a gold-set split through the Docs app's code, then scores it against the gold page.</p>
+        <div class="button-row">
+            <a class="button button-primary" href="{{ url('evals:create') }}">New eval run</a>
+            <a class="button button-secondary" href="{{ url('metrics:index') }}">Metrics and weights</a>
+        </div>
+        {% if runs %}
+        <div class="table-scroll">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Run</th>
+                        <th scope="col">Gold set</th>
+                        <th scope="col">Strategy</th>
+                        <th scope="col">Model</th>
+                        <th scope="col">Prompt</th>
+                        <th scope="col">Judge</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Score</th>
+                        <th scope="col">Cost</th>
+                        <th scope="col">Created</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for run in runs %}
+                    <tr>
+                        <td><a href="{{ url('evals:detail', id=run.id) }}">#{{ run.id }}</a></td>
+                        <td>{{ run.gold_set.name }} · {{ run.split }}</td>
+                        <td>{{ run.strategy }}</td>
+                        <td>{{ run.model_name or "—" }}</td>
+                        <td class="mono-text">{{ run.prompt_label or "—" }}</td>
+                        <td>{{ run.judge_name }}</td>
+                        <td><StatusPill status={run.status} /></td>
+                        <td class="mono-text">{% if run.summary.get("total") %}{{ "%.3f"|format(run.summary.total.total.mean) }}{% else %}—{% endif %}</td>
+                        <td class="mono-text">${{ "%.4f"|format(run.cost_usd + run.judge_cost_usd) }}</td>
+                        <td class="meta-text">{{ localtime(run.created_at).strftime("%b %d, %H:%M") }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="empty-state">No eval runs yet.</p>
+        {% endif %}
+    </section>
+</main>
+{% endblock %}

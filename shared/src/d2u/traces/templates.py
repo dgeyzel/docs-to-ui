@@ -25,3 +25,12 @@ def trace_settings_url() -> str:
         return reverse("settings:index")
     except NoReverseMatch:
         return ""
+
+
+@register_template_global
+def eval_run_url(eval_run_id: int) -> str:
+    """Link to an eval run's page, or "" in an app without eval runs."""
+    try:
+        return reverse("evals:detail", id=eval_run_id)
+    except NoReverseMatch:
+        return ""

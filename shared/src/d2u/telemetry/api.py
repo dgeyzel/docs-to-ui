@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 GENERATION_ID_KEY = "docs.generation_id"
 PROMPT_VERSION_KEY = "docs.prompt_version"
 MODEL_KEY = "docs.model"
+EVAL_RUN_ID_KEY = "docs.eval_run_id"
 
 tracer = trace.get_tracer(__name__)
 
@@ -155,5 +156,24 @@ def generation_baggage(*, prompt_version: str) -> Iterator[None]:
     token = context.attach(baggage.set_baggage(PROMPT_VERSION_KEY, prompt_version))
     try:
         yield
+    finally:
+        context.detach(token)
+
+
+@contextmanager
+def eval_run_span(*, eval_run_id: int, name: str) -> Iterator[trace.Span]:
+    """Run a block in a new trace for an eval run.
+
+    The run ID is set as baggage, so every span inside the block (including
+    worker threads started with a copy of the context) carries
+    `docs.eval_run_id` and the trace viewer can filter by it.
+    """
+    ctx = baggage.set_baggage(
+        EVAL_RUN_ID_KEY, str(eval_run_id), context=context.Context()
+    )
+    token = context.attach(ctx)
+    try:
+        with tracer.start_as_current_span(name) as span:
+            yield span
     finally:
         context.detach(token)

@@ -18,6 +18,7 @@ class TraceListRow:
     ended_at: datetime
     has_error: bool
     generation_id: int | None
+    eval_run_id: int | None
     span_count: int
     root_name: str
 
@@ -26,12 +27,15 @@ class TraceListRow:
         return (self.ended_at - self.started_at).total_seconds() * 1000
 
 
-def recent_traces(*, generation_id: int | None, status: str) -> list[TraceListRow]:
+def recent_traces(
+    *, generation_id: int | None, status: str, eval_run_id: int | None = None
+) -> list[TraceListRow]:
     """The most recent traces, optionally filtered.
 
     Args:
         generation_id: Only traces with a span tagged with this generation.
         status: "error", "ok", or "" for all.
+        eval_run_id: Only traces with a span tagged with this eval run.
     """
     limit = RECENT_TRACES_LIMIT
     rows = TraceSpan.query.sql(
@@ -42,6 +46,7 @@ def recent_traces(*, generation_id: int | None, status: str) -> list[TraceListRo
                    max({TraceSpan.end_time}) AS ended_at,
                    bool_or({TraceSpan.status_code} = 'ERROR') AS has_error,
                    max({TraceSpan.generation_id}) AS generation_id,
+                   max({TraceSpan.eval_run_id}) AS eval_run_id,
                    count(*) AS span_count
             FROM {TraceSpan}
             GROUP BY {TraceSpan.trace_id}
@@ -51,6 +56,7 @@ def recent_traces(*, generation_id: int | None, status: str) -> list[TraceListRo
                traces.ended_at AS ended_at,
                traces.has_error AS has_error,
                traces.generation_id AS generation_id,
+               traces.eval_run_id AS eval_run_id,
                traces.span_count AS span_count,
                (
                    SELECT root.name FROM {TraceSpan} root
@@ -60,6 +66,7 @@ def recent_traces(*, generation_id: int | None, status: str) -> list[TraceListRo
                ) AS root_name
         FROM traces
         WHERE ({generation_id}::bigint IS NULL OR traces.generation_id = {generation_id}::bigint)
+          AND ({eval_run_id}::bigint IS NULL OR traces.eval_run_id = {eval_run_id}::bigint)
           AND ({status}::text = '' OR ({status}::text = 'error') = traces.has_error)
         ORDER BY traces.started_at DESC
         LIMIT {limit}

@@ -149,3 +149,12 @@ def test_queued_feedback_reaches_a_backend_deselected_since(
     deliver_feedback(backend_name="langfuse", trace_id=TRACE_ID, event=FEEDBACK)
 
     assert langfuse.delivered == [TRACE_ID]
+
+
+def test_eval_run_spans_carry_the_run_id_as_baggage() -> None:
+    from d2u.telemetry.api import EVAL_RUN_ID_KEY, eval_run_span
+    from opentelemetry import baggage
+
+    with eval_run_span(eval_run_id=12, name="eval.run"):
+        assert baggage.get_baggage(EVAL_RUN_ID_KEY) == "12"
+    assert baggage.get_baggage(EVAL_RUN_ID_KEY) is None

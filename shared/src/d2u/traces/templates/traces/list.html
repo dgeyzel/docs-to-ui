@@ -24,6 +24,16 @@
                 >
             </div>
             <div class="form-group">
+                <label class="form-label" for="filter-eval-run">Eval run</label>
+                <input
+                    class="file-input"
+                    id="filter-eval-run"
+                    name="eval_run"
+                    inputmode="numeric"
+                    value="{{ eval_run_filter }}"
+                >
+            </div>
+            <div class="form-group">
                 <label class="form-label" for="filter-status">Status</label>
                 <select class="select" id="filter-status" name="status">
                     <option value="" {% if not status_filter %}selected{% endif %}>All</option>
@@ -44,6 +54,7 @@
                         <th scope="col">Duration</th>
                         <th scope="col">Status</th>
                         <th scope="col">Generation</th>
+                        <th scope="col">Eval run</th>
                         <th scope="col">Started</th>
                     </tr>
                 </thead>
@@ -57,6 +68,9 @@
                         </td>
                         <td>
                             {% if row.generation_id and generation_url(row.generation_id) %}<a href="{{ generation_url(row.generation_id) }}">#{{ row.generation_id }}</a>{% elif row.generation_id %}#{{ row.generation_id }}{% else %}<span class="empty-cell">—</span>{% endif %}
+                        </td>
+                        <td>
+                            {% if row.eval_run_id and eval_run_url(row.eval_run_id) %}<a href="{{ eval_run_url(row.eval_run_id) }}">#{{ row.eval_run_id }}</a>{% elif row.eval_run_id %}#{{ row.eval_run_id }}{% else %}<span class="empty-cell">—</span>{% endif %}
                         </td>
                         <td class="meta-text">{{ localtime(row.started_at).strftime("%b %d, %H:%M:%S") }}</td>
                     </tr>

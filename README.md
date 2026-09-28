@@ -18,7 +18,7 @@ The project is being reworked into two Plain apps that share one Postgres databa
 | App | Role |
 | --- | --- |
 | **Docs app** (`docs_app/`) | Generates and shows documentation pages. This is everything described in [Features](#features). |
-| **Tuning app** (`tuning_app/`) | Evaluates and tunes the Docs app through a web UI. Today it has model management, gold sets, the Settings page (trace backends and the default judge) and the shared trace viewer; evals arrive later in R4 and optimization in R5. |
+| **Tuning app** (`tuning_app/`) | Evaluates and tunes the Docs app through a web UI. Today it has model management, gold sets, eval runs with every metric, the Settings page (trace backends and the default judge) and the shared trace viewer; run comparison arrives later in R4 and optimization in R5. |
 
 The shared `d2u` library (`shared/`) holds the contracts, parsers, telemetry, trace store and design system. The apps may later merge into one app with a Tuning section.
 
@@ -28,7 +28,7 @@ The shared `d2u` library (`shared/`) holds the contracts, parsers, telemetry, tr
 | **R1** | Restructure into a uv workspace (`shared`, `docs_app`, `tuning_app`) with no behavior change | Done |
 | **R2** | Direct LiteLLM generation in the Docs app, model and prompt registry, 1 MB input cap, DSPy removed from the Docs app | Done |
 | **R3** | Trace backend selectable in the UI | Done |
-| **R4** | Tuning app: models, gold sets, evals and metrics, run comparison | In progress (R4a models, R4b gold sets: done) |
+| **R4** | Tuning app: models, gold sets, evals and metrics, run comparison | In progress (R4a models, R4b gold sets, R4c evals: done) |
 | **R5** | Tuning app: DSPy optimization and prompt promotion | Planned |
 | **R6** | Containers for both apps, CI, docs | Planned |
 
@@ -177,6 +177,7 @@ PLAIN_GENERATIONS_FAKE_RESPONSES=tests/fixtures/llm/fake.json
 | `PLAIN_TELEMETRY_EXPORT_ENABLED` | `true` | `false` attaches no trace backend at all, whatever is chosen. The test suites and the image build turn it off. |
 | `PLAIN_TRACES_RETENTION_DAYS` | `30` | Native spans older than this are pruned daily. |
 | `PLAIN_GOLDSETS_MAX_IMPORT_BYTES` | `10485760` | Largest gold-set JSON file the Tuning app imports (10 MB). |
+| `PLAIN_TUNING_MAX_EVAL_CONCURRENCY` | `4` | Most examples an eval run evaluates at once. |
 | `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_PROJECT_ID` | — | Needed before Langfuse can be chosen. Set them in both apps' `.env` files. |
 
 Which trace backends receive spans (native, Langfuse, both or none) isn't an environment variable: it is chosen on the Tuning app's **Settings** page and applies to both apps within `PLAIN_TELEMETRY_SETTINGS_TTL_S` seconds, with no restart.
@@ -311,7 +312,7 @@ Langfuse stays greyed out until its four `LANGFUSE_*` variables are set; the pag
 
 ### 10. Curate gold sets
 
-A gold set is a named collection of examples for one language: an input, exactly as the Docs app would read it, and the reference page it should produce. Only approved examples are used by eval runs (arriving later in R4).
+A gold set is a named collection of examples for one language: an input, exactly as the Docs app would read it, and the reference page it should produce. Only approved examples are used by eval runs.
 
 1. Open **Gold sets** in the Tuning app. Create a set, import a gold-set JSON file, or click **Load starter examples** for a draft set per language built from the shipped inputs.
 2. In a set, click **Add example**, paste or upload source (a file or a `.zip`, up to 1 MB), and choose how to fill the expected page: start empty, seed from the parser, or seed from a model (the `llm` strategy with the active prompt, run by the Tuning app's worker; the page reloads when it's done).
@@ -321,9 +322,13 @@ A gold set is a named collection of examples for one language: an input, exactly
 
 The set page shows a content hash of its approved examples; eval runs record it, so results can be tied to the exact examples they were measured on.
 
-### 11. Evaluate and tune
+### 11. Run evals
 
-Eval runs and comparisons arrive later in R4, and DSPy optimization and prompt promotion in R5. The v6 metric code in `tuning_app/dspy_pipeline/metrics/` is the starting point for the eval metrics.
+1. Open **Evals** and click **New eval run**. Choose a gold set and split, a strategy (`llm`, `hybrid`, or `parser` as the no-model baseline), the generation model, a prompt version (empty means the active one), the judge and how many examples run at once. The form preselects the Docs app's model and the default judge, and warns when the judge is also the model being evaluated.
+2. The Tuning app's worker generates every approved example of the split through the same code as the Docs app, asks the judge to grade each page, and scores it. The run page shows progress, then the summary: the total and every metric with a 95% confidence interval, component accuracy by component, tokens, generation and judge cost, and each example's scores and errors. **Traces** opens the trace list filtered to the run.
+3. A failing example scores zero and shows its error; the run carries on. A failing judge call leaves faithfulness's judge half and prose quality at zero.
+
+The **Metrics** page defines each metric and edits the weights; saving creates a new metric version, which new runs record. Run comparison arrives later in R4; DSPy optimization and prompt promotion in R5.
 
 ### 12. Switch themes
 
@@ -364,8 +369,8 @@ docs-to-ui/
 │   │   ├── dashboard/           Placeholder dashboard (R4 builds the real UI)
 │   │   ├── models_ui/           Model registry: list, add, edit, Test connection, activate
 │   │   ├── goldsets/            Gold sets: examples, form editor, seeding, imports, starter inputs
+│   │   ├── evals/               Eval runs, metrics (Plain-free), metric versions, EvalRunJob
 │   │   └── settings_ui/         Settings page: trace backends, default judge
-│   └── dspy_pipeline/           v6 metric code, the starting point for R4's eval metrics
 ├── design/docs-to-ui/           OpenDesign package: manifest, DESIGN.md, tokens, reference mockups
 ├── scripts/
 │   ├── install                  First-time setup
@@ -434,7 +439,13 @@ Component CSS uses only `var(--…)` tokens from `tokens.css`, with no raw color
 
 ### Evaluation and tuning (Tuning app)
 
-Evals will always run the production code path (`d2u.generation`), and DSPy will only search for better prompts, which reach the Docs app as plain prompt versions. Faithfulness and component accuracy against curated gold sets are required metrics (SPEC §9.5). The v6 metric code in `tuning_app/dspy_pipeline/metrics/` covers coverage, fidelity, example validity and judge-rated consistency and prose, and is the starting point for R4.
+Evals always run the production code path (`d2u.generation`): each example goes through the same strategy functions as a Docs app generation, including the syntax check and ID derivation, and every score comes from that output (SPEC D13). Judges are ordinary registry models called through the same LiteLLM client, with a Pydantic verdict (per-claim faithfulness and a 1–5 prose rating). The metric code in `tuning_app/app/evals/metrics/` is Plain-free:
+
+- **Faithfulness** = 0.5 × deterministic (share of generated operations, parameters and types found in the gold page or the parser's surface) + 0.5 × judge (share of supported claims).
+- **Component accuracy**: operation F1 by derived ID, then parameter names, locations, types, required flags, defaults, returns, signatures and groups of matched operations, as a weighted mean.
+- **Coverage**, **example validity** and **prose quality** as in SPEC §9.5. An output that fails or doesn't validate scores 0 on everything.
+
+Examples run in worker threads that do no database work; the job's thread stores each result. Every span of a run carries `docs.eval_run_id`, which the native store indexes and the trace list filters on. DSPy will only search for better prompts (R5), which reach the Docs app as plain prompt versions.
 
 ## Code Quality
 
@@ -506,26 +517,28 @@ tests/docs_app/            Docs app: presentation, sanitizer, job states and fai
                            feedback and mirroring, native export and trace viewer, telemetry
                            wiring (one trace ID), runtime backend switching, read-only selection
 tests/tuning_app/          Tuning app skeleton, Settings page, model registry and Test connection,
-                           job queues, gold sets and the expected-page editor, metric code
+                           job queues, gold sets and the expected-page editor, every metric,
+                           summaries, eval runs (states, failures, judge errors, spans), metric versions
 tests/e2e/                 Paste, zip upload, progress, failure and retry, trace viewer,
                            example tabs and copy, feedback, exports opened from disk (docs/);
                            switching trace backends, adding and testing a model, curating
-                           and seeding gold examples (tuning/)
+                           and seeding gold examples, running an eval (tuning/)
 tests/fixtures/            OpenAPI (single and multi-file), a Python package, fake-model responses,
                            and each adapter's contract.json
 ```
 
 ## Development Status
 
-v6 (milestones M1–M5) is complete, and v7 is in progress on the `redesign/v7` branch: R1 (the workspace restructure), R2 (direct LLM generation and the registry) and R3 (trace backends chosen in the UI) are done; R4 is in progress (R4a, model management, and R4b, gold sets, are done); R5–R6 are planned. See the milestone table in [About This Project](#about-this-project) and `SPEC.md` §18.
+v6 (milestones M1–M5) is complete, and v7 is in progress on the `redesign/v7` branch: R1 (the workspace restructure), R2 (direct LLM generation and the registry) and R3 (trace backends chosen in the UI) are done; R4 is in progress (R4a models, R4b gold sets and R4c eval runs are done; R4d, results and comparison, is next); R5–R6 are planned. See the milestone table in [About This Project](#about-this-project) and `SPEC.md` §18.
 
 Known gaps and deliberate differences from `SPEC.md`:
 
 - **No prompt version UI yet.** Prompt versions keep their seeded baselines until R5; models and the default judge are managed in the Tuning app.
+- **`PLAIN_TUNING_MAX_EVAL_CONCURRENCY` keeps its SPEC §16 name**, although it's defined by the `app.evals` package, whose other settings would be prefixed `EVALS_`.
+- **The faithfulness formula** (0.5 × deterministic + 0.5 × judge) and the default component weights inside component accuracy were chosen in review; SPEC §9.5 gives neither.
 - **Gold examples store the model seed's state.** Seeding from a model runs as `SeedGoldExampleJob` (added to `SPEC.md` §14), and the example records whether it is pending, running or failed.
 - **Connection test results are stored** in a Tuning-only `ModelTest` table (added to `SPEC.md` §13), so the model page can show the latest result after its job finishes.
 - **An extra telemetry setting.** `PLAIN_TELEMETRY_EXPORT_ENABLED` (not in v7's first draft) lets the test suites and the image build turn tracing off now that `PLAIN_TELEMETRY_BACKENDS` is gone; `SPEC.md` §16 lists it.
-- **The trace viewer has no eval-run filter yet.** `TraceSpan.eval_run_id` and its filter (SPEC §11.4) arrive with eval runs in R4.
 - **Langfuse credentials are per process.** Each app reads the `LANGFUSE_*` variables from its own environment, so the Settings page can only check the Tuning app's. An app without them skips Langfuse even when it's chosen, and says so on its pages.
 - **One shared development environment.** The uv workspace installs every member's dependencies into one `.venv`, so DSPy is installed there for the Tuning app. The Docs app never imports it (a test checks), and its production image contains only its own dependencies.
 - **`optuna` is opt-in.** It's in the Tuning app's `optimize` group: optuna brings numpy into the shared environment, and a half-imported numpy races with psycopg's numpy adapters when the Docs app's worker starts. Install it with `uv sync --all-packages --group optimize`.

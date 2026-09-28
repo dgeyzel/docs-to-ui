@@ -1263,3 +1263,22 @@ kbd {
   padding-left: var(--space-5);
   font-size: var(--text-sm);
 }
+
+/* Tuning app: evals */
+
+.metric-definitions {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.metric-definitions dt {
+  font-weight: 600;
+}
+
+.metric-definitions dd {
+  margin: 0;
+  color: var(--fg-2);
+}
