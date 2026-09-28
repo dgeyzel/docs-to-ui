@@ -18,7 +18,7 @@ The project is being reworked into two Plain apps that share one Postgres databa
 | App | Role |
 | --- | --- |
 | **Docs app** (`docs_app/`) | Generates and shows documentation pages. This is everything described in [Features](#features). |
-| **Tuning app** (`tuning_app/`) | Evaluates and tunes the Docs app through a web UI. Today it has model management, gold sets, eval runs with every metric, the Settings page (trace backends and the default judge) and the shared trace viewer; run comparison arrives later in R4 and optimization in R5. |
+| **Tuning app** (`tuning_app/`) | Evaluates and tunes the Docs app through a web UI. It has a dashboard, model management, gold sets, eval runs with every metric, results and run comparison, the Settings page (trace backends and the default judge) and the shared trace viewer; DSPy optimization and prompt promotion arrive in R5. |
 
 The shared `d2u` library (`shared/`) holds the contracts, parsers, telemetry, trace store and design system. The apps may later merge into one app with a Tuning section.
 
@@ -28,7 +28,7 @@ The shared `d2u` library (`shared/`) holds the contracts, parsers, telemetry, tr
 | **R1** | Restructure into a uv workspace (`shared`, `docs_app`, `tuning_app`) with no behavior change | Done |
 | **R2** | Direct LiteLLM generation in the Docs app, model and prompt registry, 1 MB input cap, DSPy removed from the Docs app | Done |
 | **R3** | Trace backend selectable in the UI | Done |
-| **R4** | Tuning app: models, gold sets, evals and metrics, run comparison | In progress (R4a models, R4b gold sets, R4c evals: done) |
+| **R4** | Tuning app: models, gold sets, evals and metrics, run comparison | Done |
 | **R5** | Tuning app: DSPy optimization and prompt promotion | Planned |
 | **R6** | Containers for both apps, CI, docs | Planned |
 
@@ -328,7 +328,10 @@ The set page shows a content hash of its approved examples; eval runs record it,
 2. The Tuning app's worker generates every approved example of the split through the same code as the Docs app, asks the judge to grade each page, and scores it. The run page shows progress, then the summary: the total and every metric with a 95% confidence interval, component accuracy by component, tokens, generation and judge cost, and each example's scores and errors. **Traces** opens the trace list filtered to the run.
 3. A failing example scores zero and shows its error; the run carries on. A failing judge call leaves faithfulness's judge half and prose quality at zero.
 
-The **Metrics** page defines each metric and edits the weights; saving creates a new metric version, which new runs record. Run comparison arrives later in R4; DSPy optimization and prompt promotion in R5.
+4. Click an example on the run page for its detail: the expected and generated pages side by side, operation by operation, with missing and invented operations and parameters and wrong fields highlighted, the judge's claims (unsupported ones marked) and prose rating, and links to the gold example and the run's trace.
+5. To compare runs, tick two or more finished runs on the same gold set on the **Evals** page and click **Compare selected**. The oldest run is the baseline: every metric and component is shown for each run with its change from the baseline, and every example with its totals and whether it got better, worse or stayed the same. Comparing an `llm` run with a `parser` run shows what the model adds to the structural baseline. The page warns when the runs used different gold-set contents, splits or metric versions.
+
+The **Metrics** page defines each metric and edits the weights; saving creates a new metric version, which new runs record. The **Dashboard** shows the Docs app's model, the default judge, the active prompts, the latest scores per language and recent runs. DSPy optimization and prompt promotion arrive in R5.
 
 ### 12. Switch themes
 
@@ -366,10 +369,11 @@ docs-to-ui/
 │   ├── app/
 │   │   ├── settings.py, urls.py Every route under /tuning/
 │   │   ├── templates/           App shell
-│   │   ├── dashboard/           Placeholder dashboard (R4 builds the real UI)
+│   │   ├── dashboard/           Active choices, latest scores per language, recent runs
 │   │   ├── models_ui/           Model registry: list, add, edit, Test connection, activate
 │   │   ├── goldsets/            Gold sets: examples, form editor, seeding, imports, starter inputs
-│   │   ├── evals/               Eval runs, metrics (Plain-free), metric versions, EvalRunJob
+│   │   ├── evals/               Eval runs, metrics, diffs and comparison (Plain-free), metric
+│   │   │                        versions, results and comparison pages, EvalRunJob
 │   │   └── settings_ui/         Settings page: trace backends, default judge
 ├── design/docs-to-ui/           OpenDesign package: manifest, DESIGN.md, tokens, reference mockups
 ├── scripts/
@@ -518,18 +522,19 @@ tests/docs_app/            Docs app: presentation, sanitizer, job states and fai
                            wiring (one trace ID), runtime backend switching, read-only selection
 tests/tuning_app/          Tuning app skeleton, Settings page, model registry and Test connection,
                            job queues, gold sets and the expected-page editor, every metric,
-                           summaries, eval runs (states, failures, judge errors, spans), metric versions
+                           summaries, page diffs, run comparison, eval runs (states, failures, judge
+                           errors, spans), result and comparison pages, dashboard, metric versions
 tests/e2e/                 Paste, zip upload, progress, failure and retry, trace viewer,
                            example tabs and copy, feedback, exports opened from disk (docs/);
                            switching trace backends, adding and testing a model, curating
-                           and seeding gold examples, running an eval (tuning/)
+                           and seeding gold examples, running, inspecting and comparing evals (tuning/)
 tests/fixtures/            OpenAPI (single and multi-file), a Python package, fake-model responses,
                            and each adapter's contract.json
 ```
 
 ## Development Status
 
-v6 (milestones M1–M5) is complete, and v7 is in progress on the `redesign/v7` branch: R1 (the workspace restructure), R2 (direct LLM generation and the registry) and R3 (trace backends chosen in the UI) are done; R4 is in progress (R4a models, R4b gold sets and R4c eval runs are done; R4d, results and comparison, is next); R5–R6 are planned. See the milestone table in [About This Project](#about-this-project) and `SPEC.md` §18.
+v6 (milestones M1–M5) is complete, and v7 is in progress on the `redesign/v7` branch: R1 (the workspace restructure), R2 (direct LLM generation and the registry), R3 (trace backends chosen in the UI) and R4 (the Tuning app's models, gold sets, evals, results and comparison) are done; R5–R6 are planned. See the milestone table in [About This Project](#about-this-project) and `SPEC.md` §18.
 
 Known gaps and deliberate differences from `SPEC.md`:
 

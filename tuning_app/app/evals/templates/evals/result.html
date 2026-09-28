@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% use_elements %}
+
+{% macro num(value) -%}{{ "%.3f"|format(value) }}{%- endmacro %}
+
+{% block title %}Run #{{ run.id }} · {{ result.label }} · Docs-to-UI Tuning{% endblock %}
+
+{% block content %}
+<main class="app-container">
+    <section class="card" aria-labelledby="result-heading">
+        <h1 class="card-title" id="result-heading">{{ result.label }}</h1>
+        <p class="meta-text">
+            <a href="{{ url('evals:detail', id=run.id) }}">Eval run #{{ run.id }}</a>
+            · {{ run.strategy }}{% if run.model_name %} · {{ run.model_name }}{% endif %}
+            {% if example %}· <a href="{{ url('goldsets:example', id=example.gold_set.id, example_id=example.id) }}">gold example #{{ example.id }}</a>{% endif %}
+            {% if run.trace_id %}· <a href="{{ url('traces:detail', trace_id=run.trace_id) }}">Trace</a>{% endif %}
+        </p>
+        <p class="connection-test">
+            <StatusPill status={result.status} />
+            <strong>Total {{ num(result.total) }}</strong>
+            <span class="mono-text">{{ result.input_tokens }} in / {{ result.output_tokens }} out tokens</span>
+            <span class="mono-text">generation ${{ "%.4f"|format(result.cost_usd) }} · judge ${{ "%.4f"|format(result.judge_cost_usd) }}</span>
+            <span class="mono-text">{{ result.latency_ms }} ms</span>
+        </p>
+        {% if result.error %}<p class="form-error" role="alert">{{ result.error }}</p>{% endif %}
+        {% if result.scores.get("metrics") %}
+        <div class="table-scroll">
+            <table class="data-table">
+                <thead><tr>{% for name, label in metric_labels.items() %}<th scope="col">{{ label }}</th>{% endfor %}</tr></thead>
+                <tbody><tr>{% for name in metric_labels %}<td class="mono-text">{{ num(result.scores.metrics[name]) }}</td>{% endfor %}</tr></tbody>
+            </table>
+        </div>
+        <details>
+            <summary class="form-label">Components</summary>
+            <div class="table-scroll">
+                <table class="data-table">
+                    <thead><tr>{% for name, label in component_labels.items() %}<th scope="col">{{ label }}</th>{% endfor %}</tr></thead>
+                    <tbody><tr>{% for name in component_labels %}<td class="mono-text">{{ num(result.scores.components.get(name, 0)) }}</td>{% endfor %}</tr></tbody>
+                </table>
+            </div>
+        </details>
+        {% endif %}
+    </section>
+
+    {% if diff %}
+    <section class="card" aria-labelledby="diff-heading">
+        <h2 class="card-title" id="diff-heading">Expected and generated</h2>
+        <p class="meta-text">
+            {{ diff.count("missing") }} missing · {{ diff.count("invented") }} invented · {{ diff.wrong_fields }} wrong fields
+            {% if result.details.get("invented") %}· not in the gold page or the parser's output: <span class="mono-text">{{ result.details.invented|join(", ") }}</span>{% endif %}
+        </p>
+        <div class="table-scroll">
+            <table class="data-table diff-table">
+                <thead><tr><th scope="col">Operation</th><th scope="col">Expected</th><th scope="col">Generated</th></tr></thead>
+                <tbody>
+                    {% for op in diff.operations %}
+                    <tr class="diff-{{ op.presence }}{% if op.differs %} diff-differs{% endif %}">
+                        <th scope="row" class="mono-text">{{ op.operation_id }}<br><span class="diff-badge diff-badge-{{ op.presence }}">{{ op.presence }}</span></th>
+                        <td>{% if op.presence != "invented" %}{{ op.expected_summary or "—" }}{% else %}<span class="empty-cell">not in the gold page</span>{% endif %}</td>
+                        <td>{% if op.presence != "missing" %}{{ op.generated_summary or "—" }}{% else %}<span class="empty-cell">not generated</span>{% endif %}</td>
+                    </tr>
+                    {% for field in op.fields %}
+                    <tr class="diff-field">
+                        <td class="mono-text">{{ field.field }}</td>
+                        <td class="mono-text diff-expected">{{ field.expected }}</td>
+                        <td class="mono-text diff-generated">{{ field.generated }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% for param in op.params %}{% if param.presence != "matched" or param.fields %}
+                    <tr class="diff-field">
+                        <td class="mono-text">param {{ param.name }}{% if param.presence != "matched" %} <span class="diff-badge diff-badge-{{ param.presence }}">{{ param.presence }}</span>{% endif %}</td>
+                        {% if param.fields %}
+                        <td class="mono-text diff-expected">{% for field in param.fields %}{{ field.field }}: {{ field.expected }}{% if not loop.last %}<br>{% endif %}{% endfor %}</td>
+                        <td class="mono-text diff-generated">{% for field in param.fields %}{{ field.field }}: {{ field.generated }}{% if not loop.last %}<br>{% endif %}{% endfor %}</td>
+                        {% else %}
+                        <td>{% if param.presence == "missing" %}expected{% else %}<span class="empty-cell">—</span>{% endif %}</td>
+                        <td>{% if param.presence == "invented" %}generated{% else %}<span class="empty-cell">—</span>{% endif %}</td>
+                        {% endif %}
+                    </tr>
+                    {% endif %}{% endfor %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% endif %}
+
+    {% if result.verdict %}
+    <section class="card" aria-labelledby="judge-heading">
+        <h2 class="card-title" id="judge-heading">Judge ({{ run.judge_name }})</h2>
+        <p>Prose quality {{ result.verdict.prose_quality }}/5 <span class="hint">{{ result.verdict.prose_rationale }}</span></p>
+        <p class="meta-text">{{ result.verdict.claims|length }} claims, {{ unsupported }} not supported by the source.</p>
+        {% for operation_id, operation_claims in claims %}
+        <h3 class="form-label mono-text">{{ operation_id or "Title and overview" }}</h3>
+        <ul class="claim-list">
+            {% for claim in operation_claims %}
+            <li>
+                <span class="diff-badge {% if claim.supported %}diff-badge-matched{% else %}diff-badge-invented{% endif %}">{% if claim.supported %}supported{% else %}not supported{% endif %}</span>
+                {{ claim.claim }} <span class="hint">{{ claim.rationale }}</span>
+            </li>
+            {% endfor %}
+        </ul>
+        {% endfor %}
+    </section>
+    {% endif %}
+</main>
+{% endblock %}

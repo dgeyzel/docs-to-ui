@@ -8,8 +8,14 @@ class EvalsRouter(Router):
     urls = (
         path("", views.EvalListView, name="list"),
         path("new", views.EvalCreateView, name="create"),
+        path("compare", views.CompareView, name="compare"),
         path("<int:id>", views.EvalDetailView, name="detail"),
         path("<int:id>/status", views.EvalStatusView, name="status"),
+        path(
+            "<int:id>/results/<int:result_id>",
+            views.ResultDetailView,
+            name="result",
+        ),
     )
 
 

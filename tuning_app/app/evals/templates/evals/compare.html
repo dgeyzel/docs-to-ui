@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% macro num(value) -%}{% if value is none %}—{% else %}{{ "%.3f"|format(value) }}{% endif %}{%- endmacro %}
+{% macro delta(value) -%}{% if value is none %}—{% elif value > 0 %}<span class="delta-up">+{{ "%.3f"|format(value) }}</span>{% elif value < 0 %}<span class="delta-down">{{ "%.3f"|format(value) }}</span>{% else %}0.000{% endif %}{%- endmacro %}
+
+{% macro metric_table(rows, caption) -%}
+<div class="table-scroll">
+    <table class="data-table">
+        <caption class="form-label">{{ caption }}</caption>
+        <thead>
+            <tr>
+                <th scope="col">Metric</th>
+                {% for run in runs %}<th scope="col">#{{ run.id }}{% if loop.first %} (baseline){% endif %}</th>{% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+            <tr>
+                <th scope="row">{{ labels.get(row.name, row.name) }}</th>
+                {% for mean in row.means %}
+                <td class="mono-text">{{ num(mean) }}{% if not loop.first %} {{ delta(row.deltas[loop.index0]) }}{% endif %}</td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{%- endmacro %}
+
+{% block title %}Compare runs · Docs-to-UI Tuning{% endblock %}
+
+{% block content %}
+<main class="app-container">
+    <section class="card" aria-labelledby="compare-heading">
+        <h1 class="card-title" id="compare-heading">Compare runs</h1>
+        {% if error %}
+        <p class="form-error" role="alert">{{ error }}</p>
+        <p><a href="{{ url('evals:list') }}">Back to eval runs</a></p>
+        {% else %}
+        <ul class="history-list">
+            {% for run in runs %}
+            <li>
+                <a href="{{ url('evals:detail', id=run.id) }}">#{{ run.id }}</a>
+                {{ run.strategy }}{% if run.model_name %} · {{ run.model_name }}{% endif %}{% if run.prompt_label %} · <span class="mono-text">{{ run.prompt_label }}</span>{% endif %}
+                · {{ run.gold_set.name }} {{ run.split }} · metrics v{{ run.metric_version.version }}
+                {% if loop.first %}<span class="role-badge">baseline</span>{% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+        {% for warning in warnings %}<p class="form-error" role="alert">{{ warning }}</p>{% endfor %}
+        {{ metric_table(totals + metrics, "Metrics (deltas from the baseline)") }}
+        <details>
+            <summary class="form-label">Component accuracy by component</summary>
+            {{ metric_table(components, "Components") }}
+        </details>
+        {% endif %}
+    </section>
+
+    {% if not error %}
+    <section class="card" aria-labelledby="examples-heading">
+        <h2 class="card-title" id="examples-heading">Examples</h2>
+        <p class="hint">Better or worse compares the last run with the baseline; changes under 0.01 count as the same.</p>
+        <div class="table-scroll">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Example</th>
+                        {% for run in runs %}<th scope="col">#{{ run.id }}</th>{% endfor %}
+                        <th scope="col">Change</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in examples %}
+                    <tr>
+                        <th scope="row">{{ row.label }}</th>
+                        {% for total in row.totals %}
+                        <td class="mono-text">{{ num(total) }}{% if not loop.first %} {{ delta(row.deltas[loop.index0]) }}{% endif %}</td>
+                        {% endfor %}
+                        <td><span class="diff-badge diff-badge-{{ row.change }}">{{ row.change }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% endif %}
+</main>
+{% endblock %}

@@ -78,7 +78,7 @@
                 <tbody>
                     {% for result in results %}
                     <tr>
-                        <td>{{ result.label }}{% if result.error %}<br><span class="form-error">{{ result.error }}</span>{% endif %}</td>
+                        <td><a href="{{ url('evals:result', id=run.id, result_id=result.id) }}">{{ result.label }}</a>{% if result.error %}<br><span class="form-error">{{ result.error }}</span>{% endif %}</td>
                         <td><StatusPill status={result.status} /></td>
                         <td class="mono-text">{{ pct(result.total) }}</td>
                         {% for name in metric_names %}<td class="mono-text">{{ pct(result.scores.metrics[name]) }}</td>{% endfor %}

@@ -332,3 +332,101 @@ def test_every_span_of_a_run_carries_its_id_and_shares_one_trace(
     assert EvalRun.query.get(run.id).trace_id == trace.format_trace_id(
         spans[0].context.trace_id
     )
+
+
+def test_the_result_page_shows_both_pages_and_the_judges_claims(
+    gold_set: GoldSet, judge: ModelConfig
+) -> None:
+    run = start(gold_set, judge)
+    run_queued()
+    result = EvalResult.query.filter(run=run).first()
+    assert result is not None
+
+    html = Client().get(f"/tuning/evals/{run.id}/results/{result.id}").content.decode()
+
+    assert "Expected and generated" in html
+    assert "missing ·" in html
+    assert "invented ·" in html
+    assert "Prose quality 4/5" in html
+    assert "not supported" in html
+    assert "Returns at most 100 pets." in html
+    assert f"/tuning/goldsets/{gold_set.id}/examples/" in html
+    assert f'href="/tuning/evals/{run.id}/results/{result.id}"' in (
+        Client().get(f"/tuning/evals/{run.id}").content.decode()
+    )
+
+
+def test_a_result_of_another_run_is_not_found(
+    gold_set: GoldSet, judge: ModelConfig
+) -> None:
+    run = start(gold_set, judge)
+    run_queued()
+    result = EvalResult.query.filter(run=run).first()
+    assert result is not None
+
+    assert (
+        Client().get(f"/tuning/evals/{run.id + 1}/results/{result.id}").status_code
+        == 404
+    )
+
+
+def test_runs_on_one_gold_set_are_compared_against_the_oldest(
+    gold_set: GoldSet, judge: ModelConfig
+) -> None:
+    parser_run = start(gold_set, judge, strategy="parser", model="")
+    run_queued()
+    llm_run = start(gold_set, judge)
+    run_queued()
+
+    html = (
+        Client()
+        .get(f"/tuning/evals/compare?runs={llm_run.id}&runs={parser_run.id}")
+        .content.decode()
+    )
+
+    assert f"#{parser_run.id} (baseline)" in html
+    assert "Component accuracy" in html
+    assert "Parameter types" in html
+    assert 'class="diff-badge diff-badge-' in html
+    assert "different" not in html
+
+
+@pytest.mark.parametrize(
+    ("query", "message"),
+    [
+        ("", "Choose at least two runs to compare."),
+        ("runs=999&runs=998", "Choose at least two runs to compare."),
+    ],
+)
+def test_comparing_needs_two_runs(query: str, message: str) -> None:
+    assert message in Client().get(f"/tuning/evals/compare?{query}").content.decode()
+
+
+def test_only_finished_runs_on_one_set_can_be_compared(
+    gold_set: GoldSet, judge: ModelConfig
+) -> None:
+    first = start(gold_set, judge, strategy="parser", model="")
+    second = start(gold_set, judge, strategy="parser", model="")
+
+    html = (
+        Client()
+        .get(f"/tuning/evals/compare?runs={first.id}&runs={second.id}")
+        .content.decode()
+    )
+
+    assert "Only finished, successful runs can be compared." in html
+
+
+def test_the_dashboard_shows_active_choices_latest_scores_and_recent_runs(
+    gold_set: GoldSet, judge: ModelConfig
+) -> None:
+    run = start(gold_set, judge)
+    run_queued()
+
+    html = Client().get("/tuning").content.decode()
+
+    assert "Fake" in html
+    assert "Claude Sonnet 4.5" in html
+    assert "openapi/llm/baseline" in html
+    assert "Latest scores by language" in html
+    assert f'href="/tuning/evals/{run.id}"' in html

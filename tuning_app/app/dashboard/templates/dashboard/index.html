@@ -1,17 +1,70 @@
 {% extends "base.html" %}
+{% use_elements %}
+
+{% macro num(value) -%}{{ "%.3f"|format(value) }}{%- endmacro %}
 
 {% block content %}
 <main class="app-container">
     <section class="card" aria-labelledby="dashboard-heading">
         <h1 class="card-title" id="dashboard-heading">Tuning</h1>
-        <p class="empty-state">
-            Gold sets, evals and optimization arrive later in milestones R4 and R5.
-            Models, settings and traces from both apps are available now.
-        </p>
+        <dl class="metric-definitions">
+            <dt>Docs app model</dt>
+            <dd>{% if active_model %}<a href="{{ url('models:detail', id=active_model.id) }}">{{ active_model.name }}</a> <span class="mono-text">{{ active_model.litellm_model }}</span>{% else %}None set{% endif %}</dd>
+            <dt>Default judge</dt>
+            <dd>{% if default_judge %}<a href="{{ url('models:detail', id=default_judge.id) }}">{{ default_judge.name }}</a>{% else %}None set{% endif %}</dd>
+            <dt>Active prompts</dt>
+            <dd>{% for prompt in active_prompts %}<span class="mono-text">{{ prompt }}</span>{% if not loop.last %}, {% endif %}{% else %}None{% endfor %}</dd>
+        </dl>
         <div class="button-row">
+            <a class="button button-primary" href="{{ url('evals:create') }}">New eval run</a>
+            <a class="button button-secondary" href="{{ url('goldsets:list') }}">Gold sets</a>
             <a class="button button-secondary" href="{{ url('models:list') }}">Manage models</a>
-            <a class="button button-secondary" href="{{ url('traces:list') }}">View traces</a>
         </div>
+    </section>
+
+    <section class="card" aria-labelledby="latest-heading">
+        <h2 class="card-title" id="latest-heading">Latest scores by language</h2>
+        {% if latest_runs %}
+        <div class="table-scroll">
+            <table class="data-table">
+                <thead>
+                    <tr><th scope="col">Language</th><th scope="col">Run</th><th scope="col">Total</th><th scope="col">Faithfulness</th><th scope="col">Component accuracy</th><th scope="col">Finished</th></tr>
+                </thead>
+                <tbody>
+                    {% for run in latest_runs %}
+                    <tr>
+                        <td>{{ run.gold_set.language }}</td>
+                        <td><a href="{{ url('evals:detail', id=run.id) }}">#{{ run.id }}</a> {{ run.strategy }}{% if run.model_name %} · {{ run.model_name }}{% endif %} · {{ run.gold_set.name }} {{ run.split }}</td>
+                        <td class="mono-text">{{ num(run.summary.total.total.mean) }}</td>
+                        <td class="mono-text">{{ num(run.summary.metrics.faithfulness.mean) }}</td>
+                        <td class="mono-text">{{ num(run.summary.metrics.component_accuracy.mean) }}</td>
+                        <td class="meta-text">{{ localtime(run.finished_at).strftime("%b %d, %H:%M") }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="empty-state">No finished eval runs yet.</p>
+        {% endif %}
+    </section>
+
+    <section class="card" aria-labelledby="recent-heading">
+        <h2 class="card-title" id="recent-heading">Recent runs</h2>
+        {% if recent_runs %}
+        <ul class="history-list">
+            {% for run in recent_runs %}
+            <li>
+                <a href="{{ url('evals:detail', id=run.id) }}">#{{ run.id }}</a>
+                <StatusPill status={run.status} />
+                {{ run.gold_set.name }} {{ run.split }} · {{ run.strategy }}{% if run.model_name %} · {{ run.model_name }}{% endif %}
+                <span class="meta-text">{{ localtime(run.created_at).strftime("%b %d, %H:%M") }}</span>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="empty-state">No eval runs yet.</p>
+        {% endif %}
     </section>
 </main>
 {% endblock %}

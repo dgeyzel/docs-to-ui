@@ -13,10 +13,12 @@
             <a class="button button-secondary" href="{{ url('metrics:index') }}">Metrics and weights</a>
         </div>
         {% if runs %}
+        <form method="get" action="{{ url('evals:compare') }}">
         <div class="table-scroll">
             <table class="data-table">
                 <thead>
                     <tr>
+                        <th scope="col"><span class="visually-hidden">Compare</span></th>
                         <th scope="col">Run</th>
                         <th scope="col">Gold set</th>
                         <th scope="col">Strategy</th>
@@ -32,6 +34,7 @@
                 <tbody>
                     {% for run in runs %}
                     <tr>
+                        <td><input type="checkbox" name="runs" value="{{ run.id }}" aria-label="Compare run {{ run.id }}" {% if run.status != "succeeded" %}disabled{% endif %}></td>
                         <td><a href="{{ url('evals:detail', id=run.id) }}">#{{ run.id }}</a></td>
                         <td>{{ run.gold_set.name }} · {{ run.split }}</td>
                         <td>{{ run.strategy }}</td>
@@ -47,6 +50,11 @@
                 </tbody>
             </table>
         </div>
+        <div class="button-row">
+            <button type="submit" class="button button-secondary">Compare selected</button>
+            <span class="hint">Select two or more finished runs on the same gold set; the oldest is the baseline.</span>
+        </div>
+        </form>
         {% else %}
         <p class="empty-state">No eval runs yet.</p>
         {% endif %}

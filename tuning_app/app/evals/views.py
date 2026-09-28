@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from d2u.registry.models import RuntimeSettings
+from d2u.schemas.docpage import DocPage
 from plain.forms import ValidationError
 from plain.http import NotFoundError404, RedirectResponse, Response
 from plain.postgres import transaction
@@ -13,9 +14,16 @@ from plain.views import View
 
 from app.evals.exceptions import EvalRunError
 from app.evals.forms import EvalRunForm, MetricWeightsForm
+from app.evals.metrics.compare import (
+    RunScores,
+    compare_examples,
+    compare_metrics,
+    comparison_warnings,
+)
 from app.evals.metrics.components import COMPONENT_WEIGHTS
+from app.evals.metrics.diff import page_diff
 from app.evals.metrics.scoring import METRIC_WEIGHTS
-from app.evals.models import EvalResult, EvalRun, MetricVersion
+from app.evals.models import EvalResult, EvalRun, MetricVersion, RunStatus
 from app.evals.runner import create_run, current_metric_version
 
 RUNS_LIMIT = 100
@@ -81,6 +89,8 @@ def _get_run(url_kwargs: dict[str, Any]) -> EvalRun:
 
 
 class EvalListView(TemplateView):
+    """Every run, newest first, with checkboxes to compare runs."""
+
     template_name = "evals/list.html"
 
     def get_template_context(self) -> dict[str, Any]:
@@ -217,3 +227,108 @@ class MetricsView(FormView[MetricWeightsForm]):
                 notes=form.cleaned_data["notes"] or "",
             ).create()
         return RedirectResponse(reverse("metrics:index") + "?saved=1", status_code=302)
+
+
+def _get_result(url_kwargs: dict[str, Any]) -> EvalResult:
+    result = EvalResult.query.get_or_none(
+        id=int(url_kwargs["result_id"]), run__id=int(url_kwargs["id"])
+    )
+    if result is None:
+        raise NotFoundError404()
+    return result
+
+
+def claims_by_operation(verdict: dict) -> list[tuple[str, list[dict]]]:
+    """The judge's claims grouped by operation ("" for the title and overview)."""
+    groups: dict[str, list[dict]] = {}
+    for claim in verdict.get("claims", []):
+        groups.setdefault(claim.get("operation_id", ""), []).append(claim)
+    return list(groups.items())
+
+
+class ResultDetailView(TemplateView):
+    """One example of a run: expected and generated side by side, and the judge."""
+
+    template_name = "evals/result.html"
+
+    def get_template_context(self) -> dict[str, Any]:
+        context = super().get_template_context()
+        result = _get_result(self.url_kwargs)
+        run = result.run
+        expected = DocPage.model_validate(result.expected) if result.expected else None
+        output = DocPage.model_validate(result.output) if result.output else None
+        context["run"] = run
+        context["result"] = result
+        context["diff"] = page_diff(output, expected) if output and expected else None
+        context["claims"] = claims_by_operation(result.verdict)
+        context["unsupported"] = sum(
+            1
+            for claim in result.verdict.get("claims", [])
+            if not claim.get("supported")
+        )
+        context["metric_labels"] = METRIC_LABELS
+        context["component_labels"] = COMPONENT_LABELS
+        context["example"] = result.example
+        return context
+
+
+def _run_scores(run: EvalRun) -> RunScores:
+    totals: dict[int, float] = {}
+    labels: dict[int, str] = {}
+    for result in EvalResult.query.filter(run=run).order_by("id"):
+        if result.example is None:
+            continue
+        totals[result.example.id] = result.total
+        labels[result.example.id] = result.label
+    label = f"#{run.id} {run.strategy}" + (
+        f" · {run.model_name}" if run.model_name else ""
+    )
+    return RunScores(
+        run_id=run.id, label=label, summary=run.summary, totals=totals, labels=labels
+    )
+
+
+class CompareView(TemplateView):
+    """Two or more finished runs on one gold set, as deltas from the oldest."""
+
+    template_name = "evals/compare.html"
+
+    def get_template_context(self) -> dict[str, Any]:
+        context = super().get_template_context()
+        ids = [
+            int(value)
+            for value in self.request.query_params.getlist("runs")
+            if value.isdigit()
+        ]
+        # The oldest run is the baseline the others are compared with.
+        ids = sorted(set(ids))
+        runs = {run.id: run for run in EvalRun.query.filter(id__in=ids)}
+        ordered = [runs[run_id] for run_id in ids if run_id in runs]
+        context["runs"] = ordered
+        context["error"] = self._problem(ordered)
+        if context["error"]:
+            return context
+        scores = [_run_scores(run) for run in ordered]
+        context["totals"] = compare_metrics(scores, "total", ["total"])
+        context["metrics"] = compare_metrics(scores, "metrics", list(METRIC_LABELS))
+        context["components"] = compare_metrics(
+            scores, "components", list(COMPONENT_LABELS)
+        )
+        context["examples"] = compare_examples(scores)
+        context["labels"] = {**METRIC_LABELS, **COMPONENT_LABELS, "total": "Total"}
+        context["warnings"] = comparison_warnings(
+            gold_hashes=[run.gold_set_hash for run in ordered],
+            splits=[run.split for run in ordered],
+            metric_versions=[run.metric_version.version for run in ordered],
+        )
+        return context
+
+    @staticmethod
+    def _problem(runs: list[EvalRun]) -> str:
+        if len(runs) < 2:
+            return "Choose at least two runs to compare."
+        if len({run.gold_set.id for run in runs}) > 1:
+            return "Only runs on the same gold set can be compared."
+        if any(run.status != RunStatus.SUCCEEDED for run in runs):
+            return "Only finished, successful runs can be compared."
+        return ""
