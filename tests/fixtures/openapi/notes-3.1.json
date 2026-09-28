@@ -1,0 +1,55 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Notes API",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/notes": {
+      "get": {
+        "summary": "List notes",
+        "parameters": [
+          {
+            "name": "tag",
+            "in": "query",
+            "schema": { "type": ["string", "null"] }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Notes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/Note" }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a note",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [{ "$ref": "#/components/schemas/Note" }, { "type": "string" }]
+              }
+            }
+          }
+        },
+        "responses": { "201": { "description": "Created." } }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Note": {
+        "type": "object",
+        "properties": { "text": { "type": "string" } }
+      }
+    }
+  }
+}

@@ -1,0 +1,33 @@
+<div class="llm-call">
+    <h3 class="span-detail-title">LLM call</h3>
+    <dl class="summary-strip">
+        <div class="summary-item">
+            <dt>Model</dt>
+            <dd>{{ call.model or "—" }}</dd>
+        </div>
+        {% for kind, count in call.tokens.items() %}
+        <div class="summary-item">
+            <dt>{{ kind|capitalize }} tokens</dt>
+            <dd>{{ count if count is not none else "—" }}</dd>
+        </div>
+        {% endfor %}
+    </dl>
+    <h4 class="op-section-title">Input messages</h4>
+    {% for message in call.input_messages %}
+    <div class="message">
+        <p class="message-role">{{ message.role }}</p>
+        <pre class="code-block">{{ message.content }}</pre>
+    </div>
+    {% else %}
+    <p class="empty-state">No input messages recorded.</p>
+    {% endfor %}
+    <h4 class="op-section-title">Output messages</h4>
+    {% for message in call.output_messages %}
+    <div class="message">
+        <p class="message-role">{{ message.role }}</p>
+        <pre class="code-block">{{ message.content }}</pre>
+    </div>
+    {% else %}
+    <p class="empty-state">No output messages recorded.</p>
+    {% endfor %}
+</div>

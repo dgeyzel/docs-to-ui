@@ -1,0 +1,23 @@
+<dl class="summary-strip">
+    {% if totals %}
+    <div class="summary-item">
+        <dt>LLM calls</dt>
+        <dd>{{ totals.llm_calls }}</dd>
+    </div>
+    <div class="summary-item">
+        <dt>Total tokens</dt>
+        <dd>{{ totals.total_tokens }}</dd>
+    </div>
+    {% endif %}
+    {% if wall_time %}
+    <div class="summary-item">
+        <dt>Wall time</dt>
+        <dd>{{ wall_time }}</dd>
+    </div>
+    {% endif %}
+    {% if trace_url %}
+    <div class="summary-item summary-link">
+        <a href="{{ trace_url }}">View trace</a>
+    </div>
+    {% endif %}
+</dl>

@@ -1,0 +1,107 @@
+{% set paste_selected = form.selected_source() == "paste" %}
+<form
+    class="card source-form"
+    method="post"
+    action="{{ action }}"
+    enctype="multipart/form-data"
+    data-source-form
+    data-tabs
+>
+    <h2 class="card-title">Generate documentation</h2>
+    {% for error in form.non_field_errors %}
+    <p class="form-error" role="alert">{{ error }}</p>
+    {% endfor %}
+    <div class="tabs" role="tablist" aria-label="Input source">
+        <button
+            type="button"
+            class="tab"
+            role="tab"
+            id="source-tab-file"
+            aria-controls="source-panel-file"
+            aria-selected="{{ 'false' if paste_selected else 'true' }}"
+            tabindex="{{ '-1' if paste_selected else '0' }}"
+            data-tab
+        >Upload file</button>
+        <button
+            type="button"
+            class="tab"
+            role="tab"
+            id="source-tab-paste"
+            aria-controls="source-panel-paste"
+            aria-selected="{{ 'true' if paste_selected else 'false' }}"
+            tabindex="{{ '0' if paste_selected else '-1' }}"
+            data-tab
+        >Paste</button>
+    </div>
+    <div
+        class="tab-panel"
+        role="tabpanel"
+        id="source-panel-file"
+        aria-labelledby="source-tab-file"
+        {% if paste_selected %}hidden{% endif %}
+    >
+        <div class="form-group">
+            <label class="form-label" for="{{ form.file.html_id }}">Source file</label>
+            <input
+                class="file-input"
+                type="file"
+                id="{{ form.file.html_id }}"
+                name="{{ form.file.html_name }}"
+                accept=".yaml,.yml,.json,.py,.zip"
+            >
+            <span class="hint">Max {{ max_input_label }} • OpenAPI (JSON or YAML), a Python file, or a .zip of either</span>
+            {% for error in form.file.errors %}
+            <span class="form-error" role="alert">{{ error }}</span>
+            {% endfor %}
+        </div>
+    </div>
+    <div
+        class="tab-panel"
+        role="tabpanel"
+        id="source-panel-paste"
+        aria-labelledby="source-tab-paste"
+        {% if not paste_selected %}hidden{% endif %}
+    >
+        <div class="form-group">
+            <label class="form-label" for="{{ form.text.html_id }}">Source text</label>
+            <textarea
+                class="textarea"
+                id="{{ form.text.html_id }}"
+                name="{{ form.text.html_name }}"
+                spellcheck="false"
+                placeholder="Paste an OpenAPI document or Python code here…"
+            >{{ form.text.value() or "" }}</textarea>
+            {% for error in form.text.errors %}
+            <span class="form-error" role="alert">{{ error }}</span>
+            {% endfor %}
+        </div>
+    </div>
+    <div class="form-group">
+        <label class="form-label" for="{{ form.entry.html_id }}">Entry file <span class="hint">(optional, for a .zip with several OpenAPI files)</span></label>
+        <input
+            class="file-input"
+            type="text"
+            id="{{ form.entry.html_id }}"
+            name="{{ form.entry.html_name }}"
+            value="{{ form.entry.value() or '' }}"
+            placeholder="e.g. api/openapi.yaml"
+        >
+        {% for error in form.entry.errors %}
+        <span class="form-error" role="alert">{{ error }}</span>
+        {% endfor %}
+    </div>
+    <div class="form-group">
+        <label class="form-label" for="{{ form.language.html_id }}">Language</label>
+        <select class="select" id="{{ form.language.html_id }}" name="{{ form.language.html_name }}">
+            {% for value, label in form.language.field.choices %}
+            <option value="{{ value }}" {% if value == form.selected_language() %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+        {% for error in form.language.errors %}
+        <span class="form-error" role="alert">{{ error }}</span>
+        {% endfor %}
+    </div>
+    <div>
+        <button type="submit" class="button button-primary">Generate documentation</button>
+    </div>
+</form>

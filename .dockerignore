@@ -1,0 +1,10 @@
+.git
+.venv
+.plain
+.pytest_cache
+**/__pycache__
+.env
+.env.local
+.env.*.local
+artifacts/**/*.tmp
+*Zone.Identifier

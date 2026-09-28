@@ -622,6 +622,7 @@ docs-to-ui/
 | `PLAIN_LLM_BATCH_TOKEN_BUDGET` | `60000` | Token budget per batch |
 | `PLAIN_LLM_BATCH_MAX_OPERATIONS` | `25` | Operations per batch |
 | `PLAIN_LLM_MAX_CONCURRENCY` | `4` | Parallel batch calls |
+| `PLAIN_LLM_FAKE_RESPONSES` | `""` | DummyLM fixture file used when `LLM_MODEL=fake` (tests set it in `.env.test`) |
 | `PLAIN_GENERATIONS_MAX_INPUT_BYTES` | `5242880` | Upload / paste cap |
 | `PLAIN_GENERATIONS_TIMEOUT_S` | `900` | Soft timeout |
 | `PLAIN_SOURCES_ENABLED_ADAPTERS` | `["openapi","python"]` | Enabled language adapters |
@@ -632,7 +633,7 @@ docs-to-ui/
 | `PLAIN_TELEMETRY_SERVICE_NAME` | `docs-to-ui` | Service name on traces |
 | `PLAIN_TELEMETRY_NATIVE_MAX_ATTRIBUTE_BYTES` | `262144` | Native attribute truncation |
 | `PLAIN_TRACES_RETENTION_DAYS` | `30` | Native trace retention |
-| `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_PROJECT_ID` | — | Required when `langfuse` is active; checked at startup |
+| `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_PROJECT_ID` | — | Required when `langfuse` is active; checked at startup. Stored as `TELEMETRY_LANGFUSE_*` settings, so `PLAIN_TELEMETRY_LANGFUSE_*` also works |
 
 ## 16. Testing and CI
 

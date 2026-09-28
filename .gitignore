@@ -10,9 +10,13 @@ __pycache__
 # env files
 /.env*
 !/.env.example
+!/.env.test
 
 # Agents
 /.claude/skills/plain-*
 /.codex/skills/plain-*
 
 *Zone.Identifier
+
+# Program artifact temp files
+artifacts/**/*.tmp

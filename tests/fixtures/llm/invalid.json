@@ -1,0 +1,9 @@
+{
+  "[[ ## surface_outline ## ]]": {
+    "result": { "overview_md": "Overview.", "groups": {} }
+  },
+  "[[ ## operations ## ]]": {
+    "reasoning": "This output is missing required fields.",
+    "result": { "operations": [{ "operation_id": "GET /pets" }] }
+  }
+}

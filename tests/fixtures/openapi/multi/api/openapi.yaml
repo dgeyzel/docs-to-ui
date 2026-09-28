@@ -1,0 +1,17 @@
+openapi: 3.1.0
+info:
+  title: Multi API
+  version: "1"
+paths:
+  /pets:
+    $ref: "paths/pets.yaml"
+  /status:
+    get:
+      summary: Service status
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "../shared/common.yaml#/components/schemas/Status"

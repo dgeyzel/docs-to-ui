@@ -1,0 +1,32 @@
+{
+  "bundle": "acme",
+  "expected_ids": [
+    "acme.Client",
+    "acme.Client.get",
+    "acme.Client.stream",
+    "acme.Client.version",
+    "acme.AcmeError",
+    "acme.connect",
+    "acme.helpers.internal_helper",
+    "acme.plugins.loader.load"
+  ],
+  "expected_groups": {
+    "acme.Client": "acme.Client",
+    "acme.Client.get": "acme.Client",
+    "acme.AcmeError": "acme.AcmeError",
+    "acme.connect": "acme",
+    "acme.helpers.internal_helper": "acme.helpers",
+    "acme.plugins.loader.load": "acme.plugins.loader"
+  },
+  "includes": {
+    "src/acme/client.py": true,
+    "setup.py": true,
+    "acme/data.yaml": false,
+    "README.md": false
+  },
+  "error": {
+    "files": {"pkg/__init__.py": "", "pkg/bad.py": "def f(:\n"},
+    "path": "pkg/bad.py",
+    "line": 1
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "predict": {
+    "traces": [],
+    "train": [],
+    "demos": [],
+    "signature": {
+      "instructions": "Write reference documentation for a batch of API operations.\n\nFor every operation, write a one-line summary (at most 200 characters), a\nMarkdown description, a short description for each parameter keyed by the\nparameter's `id`, and code examples. For HTTP APIs give a `curl` example and\na `json` response example; for Python code give `python` examples.\n\nUse only the operations and parameters provided: never invent endpoints,\nparameters, fields or behaviour. `source_description` was written by the\nAPI's authors, so expand on it but never contradict it. Write Markdown and\ncode only, never HTML.",
+      "fields": [
+        {
+          "prefix": "Operations:",
+          "description": "${operations}"
+        },
+        {
+          "prefix": "Api Title:",
+          "description": "${api_title}"
+        },
+        {
+          "prefix": "Language:",
+          "description": "Source language, e.g. openapi or python"
+        },
+        {
+          "prefix": "Reasoning:",
+          "description": "${reasoning}"
+        },
+        {
+          "prefix": "Result:",
+          "description": "One entry per input operation, with `operation_id` equal to its `id`"
+        }
+      ]
+    },
+    "lm": null
+  }
+}

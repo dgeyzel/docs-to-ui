@@ -1,0 +1,46 @@
+name: evals
+
+# Real-model evaluation. Manual only: it calls Gemini and costs money.
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "evaluate or optimize"
+        type: choice
+        options: [evaluate, optimize]
+        default: evaluate
+      version:
+        description: "Program version to evaluate, or to create when optimizing"
+        default: baseline
+      language:
+        description: "Dataset language"
+        type: choice
+        options: [all, openapi, python]
+        default: all
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      PLAIN_TELEMETRY_BACKENDS: "[]"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+      - name: Install dependencies
+        run: uv sync --group optimize
+      - name: Run
+        run: >
+          uv run python -m dspy_pipeline.optimize ${{ inputs.command }}
+          --version "${{ inputs.version }}"
+          --language "${{ inputs.language }}"
+          | tee report.json
+      - name: Keep the report and any new artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: evals-${{ inputs.command }}-${{ inputs.version }}
+          path: |
+            report.json
+            artifacts/programs/**/${{ inputs.version }}.json
+            artifacts/programs/**/${{ inputs.version }}.meta.json

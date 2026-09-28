@@ -1,0 +1,29 @@
+<div class="code-examples" data-tabs>
+    <div class="code-tabs" role="tablist">
+        {% for example in examples %}
+        <button
+            type="button"
+            class="code-tab"
+            role="tab"
+            id="{{ example.anchor }}-tab"
+            aria-controls="{{ example.anchor }}"
+            aria-selected="{{ 'true' if loop.first else 'false' }}"
+            tabindex="{{ '0' if loop.first else '-1' }}"
+            title="{{ example.title }}"
+            data-tab
+        >{{ example.label }}</button>
+        {% endfor %}
+    </div>
+    {% for example in examples %}
+    <div
+        class="code-panel"
+        role="tabpanel"
+        id="{{ example.anchor }}"
+        aria-labelledby="{{ example.anchor }}-tab"
+        {% if not loop.first %}hidden{% endif %}
+    >
+        <button type="button" class="copy-button" data-copy aria-live="polite">Copy</button>
+        <pre class="code-block"><code>{{ example.code }}</code></pre>
+    </div>
+    {% endfor %}
+</div>

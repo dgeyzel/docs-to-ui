@@ -1,0 +1,18 @@
+{% use_elements %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ page.title }}</title>
+    <style>
+{{ inline_styles }}
+    </style>
+</head>
+<body class="doc-export">
+    <doc.Layout page={page} in_app={False} />
+    <script>
+{{ inline_scripts }}
+    </script>
+</body>
+</html>

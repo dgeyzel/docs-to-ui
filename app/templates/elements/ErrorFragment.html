@@ -1,0 +1,12 @@
+<div class="alert alert-error" id="generation-status" role="alert">
+    <p class="alert-title">{{ title }}</p>
+    <p class="alert-message">
+        {% if location %}<code class="alert-location">{{ location }}</code>{% endif %}
+        {{ message }}
+    </p>
+    {% if retry_url %}
+    <form method="post" action="{{ retry_url }}" class="alert-actions">
+        <button type="submit" class="button button-primary">Retry</button>
+    </form>
+    {% endif %}
+</div>

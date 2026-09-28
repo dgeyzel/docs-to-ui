@@ -1,0 +1,118 @@
+openapi: 3.0.3
+info:
+  title: Petstore Plus API
+  version: 1.2.0
+  description: Manage pets, orders and users.
+paths:
+  /pets:
+    get:
+      tags: [Pets]
+      summary: List available pets
+      description: Returns a paginated list of pets.
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of pets to return.
+          schema:
+            type: integer
+            format: int32
+            default: 20
+        - $ref: "#/components/parameters/RequestId"
+        - name: session
+          in: cookie
+          schema:
+            type: string
+      responses:
+        "200":
+          description: A list of pets.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Pet"
+    post:
+      tags: [Pets]
+      summary: Create a pet
+      requestBody:
+        $ref: "#/components/requestBodies/NewPet"
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pet"
+  /pets/{petId}:
+    parameters:
+      - name: petId
+        in: path
+        description: Unique pet identifier.
+        schema:
+          type: string
+    get:
+      tags: [Pets]
+      summary: Get a pet
+      responses:
+        "200":
+          description: The pet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pet"
+        "404":
+          description: Not found.
+    delete:
+      tags: [Pets]
+      summary: Delete a pet
+      responses:
+        "204":
+          description: Deleted.
+  /orders/{orderId}:
+    patch:
+      summary: Update an order
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: status
+          in: query
+          schema:
+            type: string
+            nullable: true
+            enum: [placed, shipped]
+      responses:
+        default:
+          description: The updated order.
+components:
+  parameters:
+    RequestId:
+      name: X-Request-Id
+      in: header
+      description: Optional request tracking identifier.
+      schema:
+        type: string
+        format: uuid
+  requestBodies:
+    NewPet:
+      required: true
+      description: The pet to create.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/NewPet"
+  schemas:
+    Pet:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+    NewPet:
+      type: object
+      properties:
+        name:
+          type: string

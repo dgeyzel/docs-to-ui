@@ -1,0 +1,31 @@
+name: docs-to-ui-test
+
+# The full containerized suite, same as CI:
+#   docker compose -f docker-compose.test.yml up --build --abort-on-container-exit
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: docs_to_ui
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d docs_to_ui"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  # Unit, integration and E2E tests. E2E tests start their own web server and
+  # job worker against an isolated database, then drive headless Chromium.
+  tests:
+    build:
+      context: .
+      target: test
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Share Postgres's network so the database is at 127.0.0.1, which is the
+    # only host the tests' socket guard allows.
+    network_mode: service:postgres
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/docs_to_ui

@@ -1,0 +1,26 @@
+<ol class="waterfall" aria-label="Span timeline">
+    {% for row in rows %}
+    <li class="waterfall-row">
+        <button
+            type="button"
+            class="waterfall-button"
+            hx-get="{{ url('traces:span', trace_id=trace_id, span_id=row.span_id) }}"
+            hx-target="#span-detail"
+            hx-swap="innerHTML"
+            data-span-type="{{ row.span_type }}"
+        >
+            <span class="waterfall-name" style="padding-left: calc(var(--space-4) * {{ row.depth }})">
+                {{ row.name }}
+                {% if row.is_error %}<span class="error-label">error</span>{% endif %}
+            </span>
+            <span class="waterfall-track">
+                <span
+                    class="waterfall-bar span-{{ row.span_type }}"
+                    style="margin-left: {{ row.offset_percent }}%; width: {{ row.width_percent }}%"
+                ></span>
+            </span>
+            <span class="waterfall-duration">{{ "%.1f"|format(row.duration_ms) }} ms</span>
+        </button>
+    </li>
+    {% endfor %}
+</ol>

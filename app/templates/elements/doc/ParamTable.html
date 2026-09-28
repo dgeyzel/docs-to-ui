@@ -1,0 +1,30 @@
+<div class="table-scroll">
+    <table class="param-table">
+        <thead>
+            <tr>
+                <th scope="col">Name</th>
+                <th scope="col">In</th>
+                <th scope="col">Type</th>
+                <th scope="col">Required</th>
+                <th scope="col">Default</th>
+                <th scope="col">Description</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for param in params %}
+            <tr>
+                <td><code>{{ param.name }}</code></td>
+                <td>{{ param.location }}</td>
+                <td><code>{{ param.type }}</code></td>
+                <td>
+                    {% if param.required %}<span class="required-label">required</span>{% else %}<span class="empty-cell">—</span>{% endif %}
+                </td>
+                <td>
+                    {% if param.default %}<code>{{ param.default }}</code>{% else %}<span class="empty-cell">—</span>{% endif %}
+                </td>
+                <td class="prose prose-compact">{{ param.description }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>

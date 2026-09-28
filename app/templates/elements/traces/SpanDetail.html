@@ -1,0 +1,34 @@
+<div class="span-detail">
+    <h3 class="span-detail-title">{{ span.name }}</h3>
+    <p class="meta-text">
+        {{ span.kind }} · {{ "%.1f"|format(span.duration_ms) }} ms · status {{ span.status_code }}
+        {% if span.status_message %} · {{ span.status_message }}{% endif %}
+    </p>
+    <h4 class="op-section-title">Attributes</h4>
+    {% if attributes %}
+    <dl class="attribute-list">
+        {% for row in attributes %}
+        <div class="attribute-row">
+            <dt><code>{{ row.key }}</code></dt>
+            <dd><pre class="attribute-value">{{ row.value }}</pre></dd>
+        </div>
+        {% endfor %}
+    </dl>
+    {% else %}
+    <p class="empty-state">No attributes.</p>
+    {% endif %}
+    <h4 class="op-section-title">Events</h4>
+    {% if span.events %}
+    <ul class="event-list">
+        {% for event in span.events %}
+        <li>
+            <code>{{ event.name }}</code>
+            <span class="meta-text">{{ event.timestamp }}</span>
+            {% if event.attributes %}<pre class="attribute-value">{{ event.attributes|tojson(indent=2) }}</pre>{% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty-state">No events.</p>
+    {% endif %}
+</div>

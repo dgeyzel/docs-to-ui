@@ -1,0 +1,11 @@
+components:
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      description: Page size.
+      schema:
+        type: integer
+  schemas:
+    Status:
+      type: object

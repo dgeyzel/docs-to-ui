@@ -1,0 +1,7 @@
+{% use_elements %}
+<ErrorFragment
+    title={error.title}
+    location={error.location}
+    message={error.message}
+    retry_url={url("generations:regenerate", id=generation.id)}
+/>

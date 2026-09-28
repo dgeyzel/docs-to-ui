@@ -1,0 +1,17 @@
+{
+  "bundle": "multi",
+  "expected_ids": ["GET /pets", "GET /status"],
+  "expected_groups": {"GET /pets": "Pets", "GET /status": "status"},
+  "includes": {
+    "api/openapi.yaml": true,
+    "spec.yml": true,
+    "SPEC.JSON": true,
+    "client.py": false,
+    "README.md": false
+  },
+  "error": {
+    "files": {"api.yaml": "openapi: 3.0.0\npaths:\n  /a: [\n"},
+    "path": "api.yaml",
+    "line": 4
+  }
+}

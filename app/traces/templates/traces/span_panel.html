@@ -1,0 +1,5 @@
+{% use_elements %}
+{% if llm_call %}
+<traces.LLMCallView span={span} call={llm_call} />
+{% endif %}
+<traces.SpanDetail span={span} attributes={attributes} />

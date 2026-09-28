@@ -1,0 +1,283 @@
+/* Docs-to-UI Design System Tokens
+   Light theme in :root, dark overrides in [data-theme="dark"] and prefers-color-scheme: dark */
+
+:root {
+  /* Surface */
+  --bg: #ffffff;
+  --surface: #f5f5f5;
+  --surface-warm: #fafafa;
+
+  /* Foreground */
+  --fg: #111111;
+  --fg-2: #2e2e2e;
+  --muted: #646464;
+  --meta: #707070;
+
+  /* Border */
+  --border: #dedede;
+  --border-soft: #f1f1f1;
+
+  /* Accent */
+  --accent: #7747e0;
+  --accent-on: #ffffff;
+  --accent-hover: #6a3bd1;
+  --accent-active: #5b2fbd;
+
+  /* Semantic */
+  --success: #0a7d38;
+  --warn: #874c00;
+  --danger: #cf1323;
+
+  /* Fonts */
+  --font-display: system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  --font-body: system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Monaco, Consolas, 'Liberation Mono', Courier, monospace;
+
+  /* Type scale */
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 15px;
+  --text-lg: 18px;
+  --text-xl: 22px;
+  --text-2xl: 26px;
+  --text-3xl: 32px;
+  --text-4xl: 38px;
+
+  /* Leading and tracking */
+  --leading-body: 1.5714;
+  --leading-tight: 1.25;
+  --tracking-display: -0.01em;
+
+  /* Spacing (--space-N = N × 4px) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+
+  /* Section rhythm */
+  --section-y-desktop: 96px;
+  --section-y-tablet: 64px;
+  --section-y-phone: 48px;
+
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+
+  /* Elevation */
+  --elev-flat: none;
+  --elev-ring: 0 0 0 1px var(--border);
+  --elev-raised: 0 2px 8px rgba(0, 0, 0, 0.1);
+
+  /* Focus */
+  --focus-ring: 0 0 0 3px rgba(119, 71, 224, 0.2);
+
+  /* Motion */
+  --motion-fast: 0.1s;
+  --motion-base: 0.2s;
+  --ease-standard: cubic-bezier(0.4, 0.0, 0.2, 1);
+
+  /* Layout */
+  --container-max: 1280px;
+  --container-gutter-desktop: 32px;
+  --container-gutter-tablet: 24px;
+  --container-gutter-phone: 16px;
+
+  /* Docs-to-UI extensions */
+  --d2u-info: #7747e0;
+
+  /* HTTP method badges */
+  --d2u-method-get: #0a7d38;
+  --d2u-method-get-bg: #f6ffed;
+  --d2u-method-post: #0958d9;
+  --d2u-method-post-bg: #e6f7ff;
+  --d2u-method-put: #874c00;
+  --d2u-method-put-bg: #fffbe6;
+  --d2u-method-patch: #722ed1;
+  --d2u-method-patch-bg: #f9f0ff;
+  --d2u-method-delete: #cf1323;
+  --d2u-method-delete-bg: #fff2f0;
+  --d2u-method-other: #646464;
+  --d2u-method-other-bg: #fafafa;
+
+  /* Code blocks */
+  --d2u-code-bg: #f5f5f5;
+  --d2u-code-fg: #2e2e2e;
+  --d2u-code-border: #dedede;
+
+  /* Syntax highlighting */
+  --d2u-syntax-keyword: #b31d28;
+  --d2u-syntax-string: #1a7431;
+  --d2u-syntax-number: #005cc5;
+  --d2u-syntax-comment: #5c636b;
+  --d2u-syntax-function: #6f42c1;
+  --d2u-syntax-type: #005cc5;
+  --d2u-syntax-punctuation: #24292e;
+
+  /* Layout dimensions */
+  --d2u-sidebar-width: 280px;
+  --d2u-header-height: 56px;
+
+  /* Trace waterfall colors */
+  --d2u-span-request: #7747e0;
+  --d2u-span-job: #0958d9;
+  --d2u-span-llm: #722ed1;
+  --d2u-span-db: #ad6800;
+  --d2u-span-stage: #0a7d38;
+  --d2u-span-error: #cf1323;
+}
+
+/* Dark theme — [data-theme="dark"] */
+[data-theme="dark"] {
+  /* Surface */
+  --bg: #141414;
+  --surface: #1d1d1d;
+  --surface-warm: #272727;
+
+  /* Foreground */
+  --fg: #dcdcdc;
+  --fg-2: #adadad;
+  --muted: #9c9c9c;
+  --meta: #8c8c8c;
+
+  /* Border */
+  --border: #3e3e3e;
+  --border-soft: #303030;
+
+  /* Accent */
+  --accent: #9976dc;
+  --accent-on: #141414;
+  --accent-hover: #ab8ce4;
+  --accent-active: #bca3ec;
+
+  /* Semantic */
+  --success: #3fb266;
+  --warn: #dcaa37;
+  --danger: #e5736f;
+
+  /* Elevation */
+  --elev-raised: 0 2px 8px rgba(0, 0, 0, 0.5);
+
+  /* Focus */
+  --focus-ring: 0 0 0 3px rgba(153, 118, 220, 0.3);
+
+  /* Docs-to-UI extensions */
+  --d2u-info: #9976dc;
+
+  /* HTTP method badges */
+  --d2u-method-get: #3fb266;
+  --d2u-method-get-bg: #132419;
+  --d2u-method-post: #4096ff;
+  --d2u-method-post-bg: #111d2c;
+  --d2u-method-put: #dcaa37;
+  --d2u-method-put-bg: #312512;
+  --d2u-method-patch: #b37feb;
+  --d2u-method-patch-bg: #1d1126;
+  --d2u-method-delete: #e5736f;
+  --d2u-method-delete-bg: #32191a;
+  --d2u-method-other: #adadad;
+  --d2u-method-other-bg: #1d1d1d;
+
+  /* Code blocks */
+  --d2u-code-bg: #1d1d1d;
+  --d2u-code-fg: #dcdcdc;
+  --d2u-code-border: #3e3e3e;
+
+  /* Syntax highlighting */
+  --d2u-syntax-keyword: #ff7b72;
+  --d2u-syntax-string: #a5d6a7;
+  --d2u-syntax-number: #79c0ff;
+  --d2u-syntax-comment: #8b949e;
+  --d2u-syntax-function: #d2a8ff;
+  --d2u-syntax-type: #79c0ff;
+  --d2u-syntax-punctuation: #c9d1d9;
+
+  /* Trace waterfall colors */
+  --d2u-span-request: #9976dc;
+  --d2u-span-job: #4096ff;
+  --d2u-span-llm: #9254de;
+  --d2u-span-db: #dcaa37;
+  --d2u-span-stage: #3fb266;
+  --d2u-span-error: #e5736f;
+}
+
+/* Dark theme — prefers-color-scheme: dark (when no explicit theme is set) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    /* Surface */
+    --bg: #141414;
+    --surface: #1d1d1d;
+    --surface-warm: #272727;
+
+    /* Foreground */
+    --fg: #dcdcdc;
+    --fg-2: #adadad;
+    --muted: #9c9c9c;
+    --meta: #8c8c8c;
+
+    /* Border */
+    --border: #3e3e3e;
+    --border-soft: #303030;
+
+    /* Accent */
+    --accent: #9976dc;
+    --accent-on: #141414;
+    --accent-hover: #ab8ce4;
+    --accent-active: #bca3ec;
+
+    /* Semantic */
+    --success: #3fb266;
+    --warn: #dcaa37;
+    --danger: #e5736f;
+
+    /* Elevation */
+    --elev-raised: 0 2px 8px rgba(0, 0, 0, 0.5);
+
+    /* Focus */
+    --focus-ring: 0 0 0 3px rgba(153, 118, 220, 0.3);
+
+    /* Docs-to-UI extensions */
+    --d2u-info: #9976dc;
+
+    /* HTTP method badges */
+    --d2u-method-get: #3fb266;
+    --d2u-method-get-bg: #132419;
+    --d2u-method-post: #4096ff;
+    --d2u-method-post-bg: #111d2c;
+    --d2u-method-put: #dcaa37;
+    --d2u-method-put-bg: #312512;
+    --d2u-method-patch: #b37feb;
+    --d2u-method-patch-bg: #1d1126;
+    --d2u-method-delete: #e5736f;
+    --d2u-method-delete-bg: #32191a;
+    --d2u-method-other: #adadad;
+    --d2u-method-other-bg: #1d1d1d;
+
+    /* Code blocks */
+    --d2u-code-bg: #1d1d1d;
+    --d2u-code-fg: #dcdcdc;
+    --d2u-code-border: #3e3e3e;
+
+    /* Syntax highlighting */
+    --d2u-syntax-keyword: #ff7b72;
+    --d2u-syntax-string: #a5d6a7;
+    --d2u-syntax-number: #79c0ff;
+    --d2u-syntax-comment: #8b949e;
+    --d2u-syntax-function: #d2a8ff;
+    --d2u-syntax-type: #79c0ff;
+    --d2u-syntax-punctuation: #c9d1d9;
+
+    /* Trace waterfall colors */
+    --d2u-span-request: #9976dc;
+    --d2u-span-job: #4096ff;
+    --d2u-span-llm: #9254de;
+    --d2u-span-db: #dcaa37;
+    --d2u-span-stage: #3fb266;
+    --d2u-span-error: #e5736f;
+  }
+}

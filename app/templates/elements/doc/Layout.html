@@ -1,0 +1,63 @@
+{% use_elements %}
+{% set feedback = feedback if feedback is defined else {} %}
+<div class="doc-layout">
+    <aside class="doc-sidebar">
+        <nav class="doc-nav" aria-label="Operations">
+            {% for group in page.groups %}
+            <div class="nav-group">
+                <button
+                    type="button"
+                    class="nav-group-toggle"
+                    aria-expanded="true"
+                    aria-controls="nav-{{ group.anchor }}"
+                    data-collapse-toggle
+                >{{ group.name }}</button>
+                <ul class="nav-items" id="nav-{{ group.anchor }}">
+                    {% for op in group.operations %}
+                    <li>
+                        <a class="nav-item" href="#{{ op.anchor }}" data-nav-link>
+                            {% if op.method %}
+                            <span class="method-badge method-{{ op.method_class }}">{{ op.method }}</span>
+                            {% endif %}
+                            <span class="nav-label">{{ op.label }}</span>
+                        </a>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endfor %}
+        </nav>
+    </aside>
+    <main class="doc-main">
+        <header class="doc-header">
+            <h1 class="doc-title">{{ page.title }}</h1>
+            <span class="source-badge">{{ page.language }}</span>
+        </header>
+        <section class="doc-overview" aria-labelledby="overview-heading">
+            <h2 class="doc-section-heading" id="overview-heading">Overview</h2>
+            <doc.Prose html={page.overview} />
+        </section>
+        {% for group in page.groups %}
+        <section class="doc-group" id="{{ group.anchor }}" aria-labelledby="{{ group.anchor }}-heading">
+            <h2 class="doc-section-heading" id="{{ group.anchor }}-heading">{{ group.name }}</h2>
+            {% for op in group.operations %}
+            <doc.OperationCard
+                op={op}
+                in_app={in_app}
+                generation_id={generation_id if generation_id is defined else None}
+                current_feedback={feedback.get(op.operation_id)}
+            />
+            {% endfor %}
+        </section>
+        {% endfor %}
+        {% if in_app %}
+        <doc.FeedbackButtons
+            generation_id={generation_id}
+            operation_id=""
+            anchor="page"
+            label="Was this page helpful?"
+            current={feedback.get("")}
+        />
+        {% endif %}
+    </main>
+</div>

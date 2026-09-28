@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% use_elements %}
+
+{% block title %}{{ generation.display_name }} · Docs-to-UI{% endblock %}
+
+{% block content %}
+<div class="app-container">
+    <section class="card generation-summary" aria-labelledby="generation-heading">
+        <div class="generation-summary-row">
+            <h1 class="card-title" id="generation-heading">{{ generation.display_name }}</h1>
+            <StatusPill status={generation.status} />
+        </div>
+        <p class="meta-text">
+            {{ generation.language|language_name }} · {{ generation.input_bytes }} bytes ·
+            created {{ localtime(generation.created_at).strftime("%b %d, %Y %H:%M") }}
+            {% if generation.model %} · {{ generation.model }} ({{ generation.program_version }}){% endif %}
+        </p>
+        {% if generation.status in ("pending", "running") %}
+        <StatusFragment generation={generation} status={status} />
+        {% endif %}
+        {% if error %}
+        <ErrorFragment
+            title={error.title}
+            location={error.location}
+            message={error.message}
+            retry_url={url("generations:regenerate", id=generation.id)}
+        />
+        {% endif %}
+        {% if manifest %}
+        <FileManifest manifest={manifest} />
+        {% endif %}
+        {% if trace_totals or trace_url %}
+        <traces.SummaryStrip totals={trace_totals} wall_time={wall_time} trace_url={trace_url} />
+        {% endif %}
+        {% if page %}
+        <div class="button-row">
+            <a class="button button-secondary" href="{{ url('generations:export_html', id=generation.id) }}">Export HTML</a>
+            <a class="button button-secondary" href="{{ url('generations:export_json', id=generation.id) }}">Export JSON</a>
+            <form method="post" action="{{ url('generations:regenerate', id=generation.id) }}">
+                <button type="submit" class="button button-secondary">Regenerate</button>
+            </form>
+        </div>
+        {% endif %}
+    </section>
+</div>
+{% if page %}
+<doc.Layout page={page} in_app={True} generation_id={generation.id} feedback={feedback} />
+{% endif %}
+{% endblock %}

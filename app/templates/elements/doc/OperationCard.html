@@ -1,0 +1,55 @@
+{% use_elements %}
+<article class="op-card" id="{{ op.anchor }}">
+    <h3 class="op-card-heading">
+        <button
+            type="button"
+            class="op-card-toggle"
+            aria-expanded="true"
+            aria-controls="{{ op.anchor }}-body"
+            data-collapse-toggle
+        >
+            {% if op.method %}
+            <span class="method-badge method-{{ op.method_class }}">{{ op.method }}</span>
+            {% endif %}
+            <span class="op-card-label">{{ op.label }}</span>
+        </button>
+    </h3>
+    <div class="op-card-body" id="{{ op.anchor }}-body">
+        {% if op.summary %}
+        <p class="op-card-summary">{{ op.summary }}</p>
+        {% endif %}
+        {% if not op.enriched %}
+        <p class="not-enriched">
+            <span class="not-enriched-label">Not enriched</span>
+            <span class="not-enriched-text">Only the original description from the source is shown.</span>
+        </p>
+        {% endif %}
+        {% if op.description %}
+        <doc.Prose html={op.description} />
+        {% endif %}
+        {% if op.params %}
+        <h4 class="op-section-title">Parameters</h4>
+        <doc.ParamTable params={op.params} />
+        {% endif %}
+        {% if op.examples %}
+        <h4 class="op-section-title">Examples</h4>
+        <doc.CodeExamples examples={op.examples} />
+        {% endif %}
+        {% if op.returns %}
+        <h4 class="op-section-title">Returns</h4>
+        <p class="op-returns"><code>{{ op.returns }}</code></p>
+        {% endif %}
+        {% if op.source_location %}
+        <p class="op-source">Source: {{ op.source_location }}</p>
+        {% endif %}
+        {% if in_app %}
+        <doc.FeedbackButtons
+            generation_id={generation_id}
+            operation_id={op.operation_id}
+            anchor={op.anchor}
+            label="Was this helpful?"
+            current={current_feedback}
+        />
+        {% endif %}
+    </div>
+</article>

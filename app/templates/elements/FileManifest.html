@@ -1,0 +1,18 @@
+<details class="manifest">
+    <summary class="manifest-summary">Files read ({{ manifest.included|length }} included, {{ manifest.skipped|length }} skipped)</summary>
+    <ul class="manifest-files">
+        {% for path in manifest.included %}
+        <li class="manifest-file">
+            <span class="file-status file-included">included</span>
+            <code>{{ path }}</code>
+        </li>
+        {% endfor %}
+        {% for skipped in manifest.skipped %}
+        <li class="manifest-file">
+            <span class="file-status file-skipped">skipped</span>
+            <code>{{ skipped.path }}</code>
+            <span class="file-reason">{{ skipped.reason }}</span>
+        </li>
+        {% endfor %}
+    </ul>
+</details>

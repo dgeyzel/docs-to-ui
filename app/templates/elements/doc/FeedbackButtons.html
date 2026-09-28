@@ -1,0 +1,41 @@
+<form
+    class="feedback"
+    method="post"
+    action="{{ url('generations:feedback', id=generation_id) }}"
+    id="feedback-{{ anchor }}"
+>
+    <input type="hidden" name="operation_id" value="{{ operation_id }}">
+    <input type="hidden" name="anchor" value="{{ anchor }}">
+    <div class="feedback-row">
+        <span class="feedback-label">{{ label }}</span>
+        <button
+            type="submit"
+            name="score"
+            value="1"
+            class="button button-secondary feedback-button"
+            aria-pressed="{{ 'true' if current == 1 else 'false' }}"
+        ><span aria-hidden="true">👍</span> Yes</button>
+        <button
+            type="submit"
+            name="score"
+            value="-1"
+            class="button button-secondary feedback-button"
+            aria-pressed="{{ 'true' if current == -1 else 'false' }}"
+        ><span aria-hidden="true">👎</span> No</button>
+    </div>
+    <details class="feedback-comment">
+        <summary>Add a correction (optional), then choose Yes or No</summary>
+        <label class="form-label" for="comment-{{ anchor }}">Correction</label>
+        <textarea
+            class="textarea feedback-textarea"
+            id="comment-{{ anchor }}"
+            name="comment"
+            placeholder="What is wrong or missing?"
+        ></textarea>
+    </details>
+    {% if current %}
+    <p class="feedback-thanks" role="status">
+        Thanks! You rated this {{ "helpful" if current == 1 else "not helpful" }}.
+    </p>
+    {% endif %}
+</form>

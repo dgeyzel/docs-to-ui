@@ -1,11 +1,36 @@
+{% use_elements %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Project</title>
+    <title>{% block title %}Docs-to-UI{% endblock %}</title>
+    <script>
+        try {
+            const theme = localStorage.getItem("d2u-theme");
+            if (theme === "light" || theme === "dark") {
+                document.documentElement.setAttribute("data-theme", theme);
+            }
+        } catch {
+            // Storage unavailable: fall back to the system theme.
+        }
+    </script>
+    <link rel="stylesheet" href="{{ asset('css/tokens.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/components.css') }}">
+    <script src="{{ asset('js/app.js') }}" defer></script>
+    <script src="{{ asset('js/docpage.js') }}" defer></script>
+    {% htmx_js %}
+    {% block head %}{% endblock %}
 </head>
-<body>
+<body class="app-shell">
+    <header class="app-header">
+        <a class="app-brand" href="{{ url('home') }}">Docs-to-UI</a>
+        <nav class="app-nav" aria-label="Main">
+            <a class="app-nav-link" href="{{ url('home') }}">Generate</a>
+            <a class="app-nav-link" href="{{ url('traces:list') }}">Traces</a>
+        </nav>
+        <ThemeToggle />
+    </header>
     {% block content required %}{% endblock %}
 </body>
 </html>

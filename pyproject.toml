@@ -5,13 +5,52 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = "~=3.14.0"
 dependencies = [
-    "plain",
-    "plain-assets>=0.3.0",
-    "plain-templates>=0.3.0",
+  "dspy>=3.4.0",
+  "langfuse>=4.15.6",
+  "markdown-it-py>=4.2.0",
+  "nh3>=0.3.7",
+  "openinference-instrumentation-dspy>=0.1.45",
+  "opentelemetry-exporter-otlp-proto-http>=1.45.0",
+  "opentelemetry-processor-baggage>=0.66b0",
+  "plain",
+  "plain-assets>=0.3.0",
+  "plain-elements>=0.12.0",
+  "plain-htmx>=0.22.0",
+  "plain-jobs>=0.58.0",
+  "plain-postgres>=0.122.0",
+  "plain-templates>=0.3.0",
+  "psycopg[binary]>=3.3.6",
+  "pydantic>=2.13.5",
+  "pyyaml>=6.0.3",
 ]
 
 [dependency-groups]
 dev = [
-    "plain-dev",
-    "plain-pytest",
+  "plain-code>=0.27.0",
+  "plain-dev",
+  "plain-pytest",
+  "playwright>=1.63.0",
+  "pytest-playwright>=0.9.0",
+  "pytest-socket>=0.8.1",
 ]
+optimize = ["optuna>=5.0.0"]
+
+[tool.plain.code]
+# The design package is a hand-copied input, tokens.css is a generated copy of
+# it, and the Markdown docs are human-owned: formatters must not rewrite them.
+exclude = ["design", "app/assets/css/tokens.css", "*.md", "tests/fixtures"]
+
+[tool.plain.dev.run]
+worker = { cmd = "plain jobs worker --reload --stats-every 0 --max-processes 2" }
+
+[tool.plain.code.oxc]
+version = "1.84.0"
+
+[tool.plain.tailwind]
+version = "4.3.3"
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Fixture inputs include test_*.py files that are data, not tests.
+norecursedirs = [".*", "__pycache__", "fixtures"]
+addopts = "-m 'not e2e' --strict-markers --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,::1,localhost"
+markers = ["e2e: end-to-end browser tests (run with -m e2e)"]

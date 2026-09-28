@@ -1,0 +1,30 @@
+{% use_elements %}
+<section class="card" aria-labelledby="generations-heading">
+    <h2 class="card-title" id="generations-heading">Recent generations</h2>
+    {% if generations %}
+    <div class="table-scroll">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th scope="col">Status</th>
+                    <th scope="col">Input</th>
+                    <th scope="col">Language</th>
+                    <th scope="col">Created</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for generation in generations %}
+                <tr>
+                    <td><StatusPill status={generation.status} /></td>
+                    <td><a href="{{ url('generations:detail', id=generation.id) }}">{{ generation.display_name }}</a></td>
+                    <td>{{ generation.language|language_name }}</td>
+                    <td class="meta-text">{{ localtime(generation.created_at).strftime("%b %d, %Y %H:%M") }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="empty-state">No generations yet.</p>
+    {% endif %}
+</section>
