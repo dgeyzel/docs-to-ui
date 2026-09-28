@@ -1,7 +1,7 @@
 from typing import Any
 
-from d2u.generations.models import Feedback, Generation, GenerationStatus
-from d2u.registry.lookups import active_model, trace_backends
+from d2u.generations.models import Feedback, Generation, GenerationStatus, Strategy
+from d2u.registry.lookups import active_model, active_prompt_labels, trace_backends
 from d2u.schemas.docpage import DocPage
 from d2u.sources.bundle import FileManifest
 from d2u.sources.registry import display_name
@@ -74,6 +74,7 @@ class HomeView(FormView[SourceForm]):
         model = active_model()
         context["active_model_name"] = model.name if model else ""
         context["trace_backends_label"] = selection_summary(trace_backends())
+        context["active_prompt_labels"] = active_prompt_labels(Strategy.LLM.value)
         return context
 
     def form_valid(self, form: SourceForm) -> Response:

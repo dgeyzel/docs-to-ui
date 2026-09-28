@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title %}{{ prompt }} · Docs-to-UI Tuning{% endblock %}
+
+{% block content %}
+<main class="app-container">
+    <section class="card" aria-labelledby="prompt-heading">
+        <h1 class="card-title mono-text" id="prompt-heading">{{ prompt }}</h1>
+        <p class="meta-text">
+            <span class="role-badge">{{ prompt.status }}</span> · source <span class="mono-text">{{ prompt.source }}</span>
+            · created {{ localtime(prompt.created_at).strftime("%b %d, %H:%M") }}
+            {% if prompt.promoted_at %}· promoted {{ localtime(prompt.promoted_at).strftime("%b %d, %H:%M") }}{% endif %}
+            · <a href="{{ url('prompts:export', id=prompt.id) }}">Download JSON</a>
+        </p>
+        {% if prompt.scores %}
+        <p class="meta-text">Scores that justified promotion: total <span class="mono-text">{{ "%.3f"|format(prompt.scores.total or 0) }}</span> on {{ prompt.scores.gold_set }} {{ prompt.scores.split }} (<a href="{{ url('evals:detail', id=prompt.scores.eval_run) }}">run #{{ prompt.scores.eval_run }}</a>)</p>
+        {% endif %}
+        {% if message %}<p class="form-success" role="status">{{ message }}</p>{% endif %}
+        {% if error %}<p class="form-error" role="alert">{{ error }}</p>{% endif %}
+        {% if others %}
+        <form class="filter-row" method="get" action="{{ url('prompts:diff') }}">
+            <input type="hidden" name="b" value="{{ prompt.id }}">
+            <div class="form-group">
+                <label class="form-label" for="diff-against">Compare with</label>
+                <select class="select" id="diff-against" name="a">
+                    {% for other in others %}<option value="{{ other.id }}">{{ other.version }} ({{ other.status }})</option>{% endfor %}
+                </select>
+            </div>
+            <div><button type="submit" class="button button-secondary">Show diff</button></div>
+        </form>
+        {% endif %}
+    </section>
+
+    {% if prompt.status != "active" %}
+    <form class="card settings-form" method="post" action="{{ url('prompts:detail', id=prompt.id) }}" aria-labelledby="promote-heading">
+        <h2 class="card-title" id="promote-heading">Promote</h2>
+        <input type="hidden" name="form" value="promote">
+        <p class="hint">Makes this the active {{ prompt.language }}/{{ prompt.strategy }} prompt for the Docs app. The current active version becomes a candidate.</p>
+        <div class="form-group">
+            <label class="form-label" for="promote-run">Eval run that justifies it</label>
+            <select class="select" id="promote-run" name="eval_run">
+                <option value="">None</option>
+                {% for run in eval_runs %}<option value="{{ run.id }}">#{{ run.id }} {{ run.gold_set.name }} {{ run.split }} · total {{ "%.3f"|format(run.summary.total.total.mean) }}</option>{% endfor %}
+            </select>
+            <span class="hint">Its dev-set means are copied onto the version.</span>
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="promote-note">Note</label>
+            <input class="file-input" id="promote-note" name="note">
+        </div>
+        <div><button type="submit" class="button button-primary">Promote {{ prompt.version }}</button></div>
+    </form>
+    {% endif %}
+
+    <form class="card settings-form" method="post" action="{{ url('prompts:detail', id=prompt.id) }}" aria-labelledby="content-heading">
+        <h2 class="card-title" id="content-heading">{% if prompt.status == "draft" %}Edit draft{% else %}Content{% endif %}</h2>
+        <input type="hidden" name="form" value="save">
+        {% if prompt.status != "draft" %}<p class="hint">Only drafts can be edited. Copy this version to a new draft on the Prompts page.</p>{% endif %}
+        <div class="form-group">
+            <label class="form-label" for="prompt-instructions">Instructions (the system prompt)</label>
+            <textarea class="textarea" id="prompt-instructions" name="instructions" {% if prompt.status != "draft" %}readonly{% endif %}>{{ instructions }}</textarea>
+            {% if errors.get("instructions") %}<span class="form-error" role="alert">{{ errors.instructions }}</span>{% endif %}
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="prompt-examples">Few-shot examples (JSON)</label>
+            <textarea class="textarea" id="prompt-examples" name="examples" spellcheck="false" {% if prompt.status != "draft" %}readonly{% endif %}>{{ examples }}</textarea>
+            <span class="hint">{% if prompt.strategy == "llm" %}A list of {"input_files": {path: text}, "output": GeneratedPage}.{% else %}A list of {"operations": [Operation], "output": {"operations": [OperationDocs]}}.{% endif %} Validated on save.</span>
+            {% if errors.get("examples") %}<span class="form-error" role="alert">{{ errors.examples }}</span>{% endif %}
+        </div>
+        {% if prompt.status == "draft" %}<div><button type="submit" class="button button-primary">Save draft</button></div>{% endif %}
+    </form>
+
+    <section class="card" aria-labelledby="promotions-heading">
+        <h2 class="card-title" id="promotions-heading">{{ prompt.language }}/{{ prompt.strategy }} promotions</h2>
+        {% if promotions %}
+        <ol class="history-list">
+            {% for promotion in promotions %}
+            <li>
+                <span class="meta-text">{{ localtime(promotion.created_at).strftime("%b %d, %H:%M:%S") }}</span>
+                {{ promotion.kind }}: <a href="{{ url('prompts:detail', id=promotion.prompt_version.id) }}">{{ promotion.prompt_version.version }}</a>
+                {% if promotion.previous %}(replaced {{ promotion.previous.version }}){% endif %}
+                {% if promotion.note %}<span class="hint">{{ promotion.note }}</span>{% endif %}
+            </li>
+            {% endfor %}
+        </ol>
+        {% else %}
+        <p class="empty-state">No promotions yet; the seeded baseline was active from the start.</p>
+        {% endif %}
+    </section>
+</main>
+{% endblock %}

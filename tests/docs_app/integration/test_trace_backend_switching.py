@@ -127,3 +127,10 @@ def test_the_docs_app_cannot_change_the_selection() -> None:
 
     assert response.status_code == 404
     assert RuntimeSettings.load().trace_backends == ["native"]
+
+
+@pytest.mark.usefixtures("db")
+def test_the_docs_app_shows_the_active_prompts_read_only() -> None:
+    home = Client().get("/").content.decode()
+
+    assert "Prompts: openapi/llm/baseline, python/llm/baseline" in home

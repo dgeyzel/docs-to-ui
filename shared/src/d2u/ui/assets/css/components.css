@@ -1336,3 +1336,21 @@ kbd {
 .delta-down {
   color: var(--danger);
 }
+
+/* Tuning app: prompt diffs */
+
+.diff-line {
+  display: block;
+}
+
+.diff-line-added {
+  color: var(--success);
+}
+
+.diff-line-removed {
+  color: var(--danger);
+}
+
+.diff-line-hunk {
+  color: var(--meta);
+}

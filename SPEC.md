@@ -441,7 +441,7 @@ Unchanged from v6, except for where things live:
 | `Feedback` | `d2u.generations` | unchanged |
 | `ModelConfig` | `d2u.registry` | §7 |
 | `ModelTest` | `tuning_app` (`app.models_ui`) | One Test connection run: the model, the model string at the time, status, latency, error |
-| `PromptVersion`, `PromptPromotion` | `d2u.registry` | §8 |
+| `PromptVersion`, `PromptPromotion` | `d2u.registry` | §8; a promotion records the language and strategy, the version promoted, the version it replaced (for rollback), promote or rollback, the copied scores, a note and when |
 | `RuntimeSettings` | `d2u.registry` | singleton: `active_model_id`, `trace_backends`, `default_judge_model_id` |
 | `TraceSpan` | `d2u.traces` | v6, plus an indexed `eval_run_id` |
 | `GoldSet`, `GoldExample`, `GoldExampleRevision` | `tuning_app` (`app.goldsets`) | §9.2; an example also records the state of a running model seed (`seed_status`, `seed_error`) |

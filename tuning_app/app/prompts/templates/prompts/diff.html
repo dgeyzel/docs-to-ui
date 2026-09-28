@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% macro show_diff(lines) -%}
+{% if lines %}
+<pre class="source-view"><code>{% for line in lines %}<span class="diff-line diff-line-{% if line.kind == '+' %}added{% elif line.kind == '-' %}removed{% elif line.kind == '@' %}hunk{% else %}same{% endif %}">{% if line.kind in '+-' %}{{ line.kind }} {% elif line.kind == ' ' %}  {% endif %}{{ line.text }}</span>
+{% endfor %}</code></pre>
+{% else %}
+<p class="empty-state">No differences.</p>
+{% endif %}
+{%- endmacro %}
+
+{% block title %}Diff · Docs-to-UI Tuning{% endblock %}
+
+{% block content %}
+<main class="app-container">
+    <section class="card" aria-labelledby="diff-heading">
+        <h1 class="card-title" id="diff-heading">
+            <a class="mono-text" href="{{ url('prompts:detail', id=old.id) }}">{{ old }}</a> → <a class="mono-text" href="{{ url('prompts:detail', id=new.id) }}">{{ new }}</a>
+        </h1>
+        <h2 class="form-label">Instructions</h2>
+        {{ show_diff(instructions_diff) }}
+        <h2 class="form-label">Examples</h2>
+        {{ show_diff(examples_diff) }}
+    </section>
+</main>
+{% endblock %}

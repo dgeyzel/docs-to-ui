@@ -18,7 +18,7 @@ The project is being reworked into two Plain apps that share one Postgres databa
 | App | Role |
 | --- | --- |
 | **Docs app** (`docs_app/`) | Generates and shows documentation pages. This is everything described in [Features](#features). |
-| **Tuning app** (`tuning_app/`) | Evaluates and tunes the Docs app through a web UI. It has a dashboard, model management, gold sets, eval runs with every metric, results and run comparison, the Settings page (trace backends and the default judge) and the shared trace viewer; DSPy optimization and prompt promotion arrive in R5. |
+| **Tuning app** (`tuning_app/`) | Evaluates and tunes the Docs app through a web UI. It has a dashboard, model management, prompt versions with promotion and rollback, gold sets, eval runs with every metric, results and run comparison, the Settings page (trace backends and the default judge) and the shared trace viewer; DSPy optimization arrives later in R5. |
 
 The shared `d2u` library (`shared/`) holds the contracts, parsers, telemetry, trace store and design system. The apps may later merge into one app with a Tuning section.
 
@@ -29,10 +29,10 @@ The shared `d2u` library (`shared/`) holds the contracts, parsers, telemetry, tr
 | **R2** | Direct LiteLLM generation in the Docs app, model and prompt registry, 1 MB input cap, DSPy removed from the Docs app | Done |
 | **R3** | Trace backend selectable in the UI | Done |
 | **R4** | Tuning app: models, gold sets, evals and metrics, run comparison | Done |
-| **R5** | Tuning app: DSPy optimization and prompt promotion | Planned |
+| **R5** | Tuning app: DSPy optimization and prompt promotion | In progress (R5a, prompt versions: done) |
 | **R6** | Containers for both apps, CI, docs | Planned |
 
-Models are managed in the Tuning app; prompt versions keep their seeded defaults until R5 (see [Models and prompt versions](#models-and-prompt-versions)). Where the code differs from the spec, see [Development Status](#development-status).
+Models and prompt versions are managed in the Tuning app (see [Models and prompt versions](#models-and-prompt-versions)). Where the code differs from the spec, see [Development Status](#development-status).
 
 ## Features
 
@@ -194,7 +194,7 @@ The script checks the manifest and all 87 required tokens (light values plus bot
 
 ### Models and prompt versions
 
-Models, prompt versions and the active choices live in the shared database (the `d2u.registry` package) rather than in settings. Models are managed on the Tuning app's **Models** page; prompt versions get their UI in R5. The seeded defaults:
+Models, prompt versions and the active choices live in the shared database (the `d2u.registry` package) rather than in settings. Models are managed on the Tuning app's **Models** page and prompt versions on its **Prompts** page. The seeded defaults:
 
 | Seeded entry | Value |
 | --- | --- |
@@ -331,9 +331,20 @@ The set page shows a content hash of its approved examples; eval runs record it,
 4. Click an example on the run page for its detail: the expected and generated pages side by side, operation by operation, with missing and invented operations and parameters and wrong fields highlighted, the judge's claims (unsupported ones marked) and prose rating, and links to the gold example and the run's trace.
 5. To compare runs, tick two or more finished runs on the same gold set on the **Evals** page and click **Compare selected**. The oldest run is the baseline: every metric and component is shown for each run with its change from the baseline, and every example with its totals and whether it got better, worse or stayed the same. Comparing an `llm` run with a `parser` run shows what the model adds to the structural baseline. The page warns when the runs used different gold-set contents, splits or metric versions.
 
-The **Metrics** page defines each metric and edits the weights; saving creates a new metric version, which new runs record. The **Dashboard** shows the Docs app's model, the default judge, the active prompts, the latest scores per language and recent runs. DSPy optimization and prompt promotion arrive in R5.
+The **Metrics** page defines each metric and edits the weights; saving creates a new metric version, which new runs record. The **Dashboard** shows the Docs app's model, the default judge, the active prompts, the latest scores per language and recent runs.
 
-### 12. Switch themes
+### 12. Manage prompt versions
+
+The Docs app always uses the active prompt version for the input's language and strategy, and shows the active ones on its generation form. On the Tuning app's **Prompts** page:
+
+1. **New draft** copies any version under a new label (for example `v2`); **Import** reads a version JSON file, the format of **Download JSON** on a version's page. Both create drafts.
+2. On a draft's page, edit the instructions (the system prompt) and the few-shot examples (JSON, validated on save). Active and candidate versions are read-only; copy them to change them. **Compare with** shows a line diff of the instructions and examples against another version.
+3. **Promote** makes a version active; the previous active version becomes a candidate. Optionally choose one of the version's eval runs, and its dev-set means are copied onto the version as the scores that justified promotion. The Docs app uses the new version from its next generation.
+4. **Roll back to …** on the Prompts page restores the version the latest promotion replaced, in one click. Every promotion and rollback is kept in the version's promotion history.
+
+DSPy optimization, which produces candidate versions automatically, arrives later in R5.
+
+### 13. Switch themes
 
 Click **Toggle theme** in the header. The choice is remembered in your browser. Exported pages follow the reader's system setting.
 
@@ -371,6 +382,7 @@ docs-to-ui/
 │   │   ├── templates/           App shell
 │   │   ├── dashboard/           Active choices, latest scores per language, recent runs
 │   │   ├── models_ui/           Model registry: list, add, edit, Test connection, activate
+│   │   ├── prompts/             Prompt versions: drafts, import and export, diff, promote, roll back
 │   │   ├── goldsets/            Gold sets: examples, form editor, seeding, imports, starter inputs
 │   │   ├── evals/               Eval runs, metrics, diffs and comparison (Plain-free), metric
 │   │   │                        versions, results and comparison pages, EvalRunJob
@@ -521,24 +533,26 @@ tests/docs_app/            Docs app: presentation, sanitizer, job states and fai
                            feedback and mirroring, native export and trace viewer, telemetry
                            wiring (one trace ID), runtime backend switching, read-only selection
 tests/tuning_app/          Tuning app skeleton, Settings page, model registry and Test connection,
-                           job queues, gold sets and the expected-page editor, every metric,
+                           job queues, prompt versions (drafts, diff, promotion, rollback),
+                           gold sets and the expected-page editor, every metric,
                            summaries, page diffs, run comparison, eval runs (states, failures, judge
                            errors, spans), result and comparison pages, dashboard, metric versions
 tests/e2e/                 Paste, zip upload, progress, failure and retry, trace viewer,
                            example tabs and copy, feedback, exports opened from disk (docs/);
                            switching trace backends, adding and testing a model, curating
-                           and seeding gold examples, running, inspecting and comparing evals (tuning/)
+                           and seeding gold examples, running, inspecting and comparing evals,
+                           promoting a prompt the Docs app then uses, and rolling it back (tuning/)
 tests/fixtures/            OpenAPI (single and multi-file), a Python package, fake-model responses,
                            and each adapter's contract.json
 ```
 
 ## Development Status
 
-v6 (milestones M1–M5) is complete, and v7 is in progress on the `redesign/v7` branch: R1 (the workspace restructure), R2 (direct LLM generation and the registry), R3 (trace backends chosen in the UI) and R4 (the Tuning app's models, gold sets, evals, results and comparison) are done; R5–R6 are planned. See the milestone table in [About This Project](#about-this-project) and `SPEC.md` §18.
+v6 (milestones M1–M5) is complete, and v7 is in progress on the `redesign/v7` branch: R1 (the workspace restructure), R2 (direct LLM generation and the registry), R3 (trace backends chosen in the UI) and R4 (the Tuning app's models, gold sets, evals, results and comparison) are done; R5 is in progress (R5a, prompt versions, is done); R6 is planned. See the milestone table in [About This Project](#about-this-project) and `SPEC.md` §18.
 
 Known gaps and deliberate differences from `SPEC.md`:
 
-- **No prompt version UI yet.** Prompt versions keep their seeded baselines until R5; models and the default judge are managed in the Tuning app.
+- **Prompt versions can be exported** as JSON (**Download JSON**), in the format **Import** reads. SPEC §8 names import only; export makes versions round-trip.
 - **`PLAIN_TUNING_MAX_EVAL_CONCURRENCY` keeps its SPEC §16 name**, although it's defined by the `app.evals` package, whose other settings would be prefixed `EVALS_`.
 - **The faithfulness formula** (0.5 × deterministic + 0.5 × judge) and the default component weights inside component accuracy were chosen in review; SPEC §9.5 gives neither.
 - **Gold examples store the model seed's state.** Seeding from a model runs as `SeedGoldExampleJob` (added to `SPEC.md` §14), and the example records whether it is pending, running or failed.

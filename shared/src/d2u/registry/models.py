@@ -184,3 +184,57 @@ class RuntimeSettings(postgres.Model):
         """The settings row, created with defaults if it doesn't exist."""
         settings, _ = cls.query.get_or_create(key="default")
         return settings
+
+
+class PromotionKind(StrEnum):
+    PROMOTE = "promote"
+    ROLLBACK = "rollback"
+
+
+@postgres.register_model
+class PromptPromotion(postgres.Model):
+    """A record of a prompt version becoming active (SPEC §8).
+
+    `previous` is the version it replaced, so a promotion can be rolled back.
+    """
+
+    language: Field[str] = types.TextField(max_length=32)
+    strategy: Field[str] = types.TextField(max_length=16)
+    prompt_version: Field[PromptVersion] = types.ForeignKeyField(
+        PromptVersion, on_delete=postgres.RESTRICT, related_query_name="promotions"
+    )
+    previous: Field[PromptVersion | None] = types.ForeignKeyField(
+        PromptVersion,
+        on_delete=postgres.RESTRICT,
+        allow_null=True,
+        required=False,
+        default=None,
+        related_query_name="replaced_by",
+    )
+    kind: Field[str] = types.TextField(
+        max_length=16,
+        choices=_choices(tuple(kind.value for kind in PromotionKind)),
+        default=PromotionKind.PROMOTE.value,
+    )
+    scores: Field[dict] = types.JSONField(required=False, default={})
+    note: Field[str] = types.TextField(required=False, default="")
+    created_at: Field[datetime] = types.DateTimeField(create_now=True)
+
+    model_options = postgres.Options(
+        indexes=[
+            postgres.Index(
+                fields=["language", "strategy", "created_at"],
+                name="registry_promptpromotion_language_strategy_created_idx",
+            ),
+            postgres.Index(
+                fields=["prompt_version"],
+                name="registry_promptpromotion_prompt_version_idx",
+            ),
+            postgres.Index(
+                fields=["previous"], name="registry_promptpromotion_previous_idx"
+            ),
+        ],
+    )
+
+    def __str__(self) -> str:
+        return f"{self.kind} {self.prompt_version}"

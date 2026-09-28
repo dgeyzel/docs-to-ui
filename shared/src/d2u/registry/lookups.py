@@ -40,6 +40,14 @@ def active_prompt(*, language: str, strategy: str) -> PromptVersion | None:
     )
 
 
+def active_prompt_labels(strategy: str) -> list[str]:
+    """The active versions for a strategy, one per language, e.g. `openapi/llm/v3`."""
+    prompts = PromptVersion.query.filter(
+        strategy=strategy, status=PromptStatus.ACTIVE.value
+    ).order_by("language")
+    return [str(prompt) for prompt in prompts]
+
+
 def require_active_prompt(*, language: str, strategy: str) -> PromptVersion:
     """The active prompt version for a language and strategy.
 

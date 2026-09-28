@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% use_elements %}
+
+{% block title %}Prompts · Docs-to-UI Tuning{% endblock %}
+
+{% block content %}
+<main class="app-container">
+    <section class="card" aria-labelledby="prompts-heading">
+        <h1 class="card-title" id="prompts-heading">Prompt versions</h1>
+        <p class="hint">The Docs app always uses the active version for the input's language and strategy. Promoting makes a version active; the previous one becomes a candidate and can be restored with one click.</p>
+        {% if message %}<p class="form-success" role="status">{{ message }}</p>{% endif %}
+        {% if error %}<p class="form-error" role="alert">{{ error }}</p>{% endif %}
+    </section>
+
+    {% for group in groups %}
+    <section class="card" aria-labelledby="group-{{ group.language }}-{{ group.strategy }}">
+        <h2 class="card-title" id="group-{{ group.language }}-{{ group.strategy }}">{{ group.language }} · {{ group.strategy }}</h2>
+        {% if group.versions %}
+        <div class="table-scroll">
+            <table class="data-table">
+                <thead>
+                    <tr><th scope="col">Version</th><th scope="col">Status</th><th scope="col">Source</th><th scope="col">Examples</th><th scope="col">Dev score</th><th scope="col">Created</th><th scope="col">Promoted</th></tr>
+                </thead>
+                <tbody>
+                    {% for prompt in group.versions %}
+                    <tr>
+                        <td><a href="{{ url('prompts:detail', id=prompt.id) }}">{{ prompt.version }}</a></td>
+                        <td><span class="role-badge">{{ prompt.status }}</span></td>
+                        <td class="mono-text">{{ prompt.source }}</td>
+                        <td>{{ prompt.examples|length }}</td>
+                        <td class="mono-text">{% if prompt.scores.get("total") is not none %}{{ "%.3f"|format(prompt.scores.total) }}{% else %}—{% endif %}</td>
+                        <td class="meta-text">{{ localtime(prompt.created_at).strftime("%b %d, %H:%M") }}</td>
+                        <td class="meta-text">{% if prompt.promoted_at %}{{ localtime(prompt.promoted_at).strftime("%b %d, %H:%M") }}{% else %}—{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="empty-state">No versions.</p>
+        {% endif %}
+        {% if group.rollback_to %}
+        <form method="post" action="{{ url('prompts:list') }}">
+            <input type="hidden" name="form" value="rollback">
+            <input type="hidden" name="language" value="{{ group.language }}">
+            <input type="hidden" name="strategy" value="{{ group.strategy }}">
+            <button type="submit" class="button button-secondary">Roll back to {{ group.rollback_to.version }}</button>
+        </form>
+        {% endif %}
+    </section>
+    {% endfor %}
+
+    <form class="card settings-form" method="post" action="{{ url('prompts:list') }}" aria-labelledby="new-version-heading">
+        <h2 class="card-title" id="new-version-heading">New draft</h2>
+        <input type="hidden" name="form" value="new">
+        <div class="filter-row">
+            <div class="form-group">
+                <label class="form-label" for="new-base">Copy from</label>
+                <select class="select" id="new-base" name="base">
+                    {% for prompt in all_versions %}<option value="{{ prompt.id }}">{{ prompt }}{% if prompt.status == "active" %} (active){% endif %}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="new-version">New label</label>
+                <input class="file-input mono-text" id="new-version" name="version" placeholder="e.g. v2">
+            </div>
+            <div><button type="submit" class="button button-primary">Create draft</button></div>
+        </div>
+    </form>
+
+    <form class="card settings-form" method="post" action="{{ url('prompts:list') }}" enctype="multipart/form-data" aria-labelledby="import-heading">
+        <h2 class="card-title" id="import-heading">Import a version</h2>
+        <input type="hidden" name="form" value="import">
+        <div class="form-group">
+            <label class="form-label" for="import-file">Prompt version JSON file</label>
+            <input class="file-input" type="file" id="import-file" name="file" accept=".json">
+            <span class="hint">The format of <strong>Download JSON</strong> on a version's page: language, strategy, version, instructions and examples. Imports become drafts.</span>
+        </div>
+        <div><button type="submit" class="button button-primary">Import</button></div>
+    </form>
+</main>
+{% endblock %}
