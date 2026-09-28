@@ -30,6 +30,13 @@ JOBS_SCHEDULE = [
 # GENERATIONS_MAX_INPUT_BYTES (1 MB); the form enforces the exact limit.
 DATA_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024
 
+# The database is shared with the Tuning app, whose tables and migrations the
+# Docs app doesn't install. Without this, preflight would offer to drop them.
+PREFLIGHT_SILENCED_CHECKS = [
+    "postgres.database_tables",
+    "postgres.prunable_migrations",
+]
+
 MIDDLEWARE = [
     "plain.postgres.DatabaseConnectionMiddleware",
 ]

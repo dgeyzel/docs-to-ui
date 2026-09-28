@@ -608,5 +608,8 @@
         "examples": []
       }
     ]
+  },
+  "Connection check:": {
+    "ok": true
   }
 }

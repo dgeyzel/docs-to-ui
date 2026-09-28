@@ -21,6 +21,7 @@ INSTALLED_PACKAGES = [
     # Local packages.
     "app.dashboard",
     "app.settings_ui",
+    "app.models_ui",
 ]
 
 MIDDLEWARE = [

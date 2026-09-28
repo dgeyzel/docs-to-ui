@@ -5,10 +5,11 @@
     <section class="card" aria-labelledby="dashboard-heading">
         <h1 class="card-title" id="dashboard-heading">Tuning</h1>
         <p class="empty-state">
-            Model management, gold sets, evals and optimization arrive in milestones R4 and R5.
-            Traces from both apps are already available.
+            Gold sets, evals and optimization arrive later in milestones R4 and R5.
+            Models, settings and traces from both apps are available now.
         </p>
         <div class="button-row">
+            <a class="button button-secondary" href="{{ url('models:list') }}">Manage models</a>
             <a class="button button-secondary" href="{{ url('traces:list') }}">View traces</a>
         </div>
     </section>

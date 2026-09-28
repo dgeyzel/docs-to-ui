@@ -22,7 +22,7 @@ RUN uv sync --frozen --all-packages \
     && playwright install --with-deps chromium
 ENV PLAIN_DEBUG=true \
     PLAIN_SECRET_KEY=testing
-CMD ["sh", "-c", "python scripts/sync_design.py --check && cd docs_app && pytest && pytest -m e2e && cd ../tuning_app && pytest"]
+CMD ["sh", "-c", "python scripts/sync_design.py --check && cd docs_app && pytest && pytest -m e2e && cd ../tuning_app && pytest && pytest -m e2e"]
 
 # prod: the Docs app with compiled assets; run the web server and a worker
 # from this image. The server binds to 0.0.0.0 inside the container only, so

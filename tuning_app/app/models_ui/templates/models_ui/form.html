@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% use_elements %}
+
+{% block title %}{% if model %}{{ model.name }}{% else %}Add model{% endif %} · Docs-to-UI Tuning{% endblock %}
+
+{% block content %}
+<main class="app-container">
+    {% if model %}
+    <section class="card" aria-labelledby="model-status-heading">
+        <h1 class="card-title" id="model-status-heading">{{ model.name }}</h1>
+        <p class="meta-text">
+            {% if is_active %}The Docs app generates with this model.{% endif %}
+            {% if is_judge %}This is the default judge.{% endif %}
+            {% if model.api_key_env %}
+            Key: <span class="mono-text">{{ model.api_key_env }}</span>
+            {% if key_set %}is set.{% else %}<span class="form-error">is not set in the Tuning app's environment.</span>{% endif %}
+            {% endif %}
+        </p>
+        <div class="button-row">
+            <form method="post" action="{{ url('models:test', id=model.id) }}">
+                <button type="submit" class="button button-secondary">Test connection</button>
+            </form>
+            {% if not is_active and model.enabled_for_generation %}
+            <form method="post" action="{{ url('models:activate', id=model.id) }}">
+                <button type="submit" class="button button-secondary">Activate for the Docs app</button>
+            </form>
+            {% endif %}
+        </div>
+        <div id="connection-test">
+            {% if test %}{% include "models_ui/test_fragment.html" %}{% endif %}
+        </div>
+    </section>
+    {% endif %}
+
+    <form
+        class="card settings-form"
+        method="post"
+        action="{% if model %}{{ url('models:detail', id=model.id) }}{% else %}{{ url('models:create') }}{% endif %}"
+    >
+        <h2 class="card-title">{% if model %}Edit model{% else %}Add model{% endif %}</h2>
+        {% if saved %}<p class="form-success" role="status">Saved.</p>{% endif %}
+        {% for error in form.non_field_errors %}
+        <p class="form-error" role="alert">{{ error }}</p>
+        {% endfor %}
+        <div class="form-group">
+            <label class="form-label" for="{{ form.name.html_id }}">Name</label>
+            <input class="file-input" id="{{ form.name.html_id }}" name="{{ form.name.html_name }}" value="{{ form.name.value() or '' }}">
+            {% for error in form.name.errors %}<span class="form-error" role="alert">{{ error }}</span>{% endfor %}
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="{{ form.litellm_model.html_id }}">LiteLLM model</label>
+            <input
+                class="file-input mono-text"
+                id="{{ form.litellm_model.html_id }}"
+                name="{{ form.litellm_model.html_name }}"
+                value="{{ form.litellm_model.value() or '' }}"
+                placeholder="e.g. gemini/gemini-3.8-flash"
+                hx-get="{{ url('models:params') }}"
+                hx-trigger="input changed delay:300ms, change"
+                hx-target="#model-params"
+                hx-swap="outerHTML"
+                hx-include="[name^='param_']"
+            >
+            <span class="hint">A LiteLLM model string: provider prefix and model name.</span>
+            {% for error in form.litellm_model.errors %}<span class="form-error" role="alert">{{ error }}</span>{% endfor %}
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="{{ form.api_key_env.html_id }}">API key variable</label>
+            <input class="file-input mono-text" id="{{ form.api_key_env.html_id }}" name="{{ form.api_key_env.html_name }}" value="{{ form.api_key_env.value() or '' }}" placeholder="e.g. GEMINI_API_KEY">
+            <span class="hint">The name of the environment variable that holds the key, set in both apps' .env files. The key itself is never stored.</span>
+            {% for error in form.api_key_env.errors %}<span class="form-error" role="alert">{{ error }}</span>{% endfor %}
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="{{ form.api_base.html_id }}">API base URL <span class="hint">(optional, for proxies or local models)</span></label>
+            <input class="file-input" id="{{ form.api_base.html_id }}" name="{{ form.api_base.html_name }}" value="{{ form.api_base.value() or '' }}">
+            {% for error in form.api_base.errors %}<span class="form-error" role="alert">{{ error }}</span>{% endfor %}
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="{{ form.max_input_tokens.html_id }}">Max input tokens</label>
+            <input class="file-input" id="{{ form.max_input_tokens.html_id }}" name="{{ form.max_input_tokens.html_name }}" inputmode="numeric" value="{{ form.max_input_tokens.value() or '' }}">
+            <span class="hint">Inputs larger than this are split into several calls.</span>
+            {% for error in form.max_input_tokens.errors %}<span class="form-error" role="alert">{{ error }}</span>{% endfor %}
+        </div>
+        {% include "models_ui/params_fragment.html" %}
+        {% if model and dropped_params %}
+        <p class="hint">Saving removes parameters this model string doesn't support: {{ dropped_params|join(", ") }}.</p>
+        {% endif %}
+        <fieldset class="form-group choice-group">
+            <legend class="form-label">Roles</legend>
+            <div class="choice">
+                <input type="checkbox" id="{{ form.enabled_for_generation.html_id }}" name="{{ form.enabled_for_generation.html_name }}" value="true" {% if form.enabled_for_generation.value() %}checked{% endif %}>
+                <label for="{{ form.enabled_for_generation.html_id }}">Can generate pages</label>
+            </div>
+            {% for error in form.enabled_for_generation.errors %}<span class="form-error" role="alert">{{ error }}</span>{% endfor %}
+            <div class="choice">
+                <input type="checkbox" id="{{ form.enabled_for_judging.html_id }}" name="{{ form.enabled_for_judging.html_name }}" value="true" {% if form.enabled_for_judging.value() %}checked{% endif %}>
+                <label for="{{ form.enabled_for_judging.html_id }}">Can judge evals</label>
+            </div>
+            {% for error in form.enabled_for_judging.errors %}<span class="form-error" role="alert">{{ error }}</span>{% endfor %}
+        </fieldset>
+        <div class="form-group">
+            <label class="form-label" for="{{ form.notes.html_id }}">Notes</label>
+            <textarea class="textarea textarea-short" id="{{ form.notes.html_id }}" name="{{ form.notes.html_name }}">{{ form.notes.value() or '' }}</textarea>
+        </div>
+        <div>
+            <button type="submit" class="button button-primary">{% if model %}Save model{% else %}Add model{% endif %}</button>
+        </div>
+    </form>
+</main>
+{% endblock %}

@@ -3,6 +3,7 @@ from plain.assets.urls import AssetsRouter
 from plain.urls import Router, include, path
 
 from app.dashboard.views import DashboardView, RootRedirectView
+from app.models_ui.urls import ModelsRouter
 from app.settings_ui.urls import SettingsRouter
 
 
@@ -14,6 +15,7 @@ class AppRouter(Router):
         include("assets/", AssetsRouter),
         include("tuning/traces/", TracesRouter),
         include("tuning/settings/", SettingsRouter),
+        include("tuning/models/", ModelsRouter),
         path("tuning/", DashboardView, name="dashboard"),
         path("", RootRedirectView),
     )

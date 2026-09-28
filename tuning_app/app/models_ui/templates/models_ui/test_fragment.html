@@ -1,0 +1,21 @@
+{% use_elements %}
+<div
+    class="connection-test"
+    id="connection-test-result"
+    {% if not test.finished %}
+    hx-get="{{ url('models:test_status', id=model.id, test_id=test.id) }}"
+    hx-trigger="every 1s"
+    hx-swap="outerHTML"
+    {% endif %}
+>
+    <StatusPill status={test.status} />
+    <span class="mono-text">{{ test.litellm_model }}</span>
+    {% if test.status == "succeeded" %}
+    <span>Answered in {{ test.latency_ms }} ms.</span>
+    {% elif test.status == "failed" %}
+    <p class="form-error" role="alert">{{ test.error }}</p>
+    {% else %}
+    <span class="hint">Waiting for the Tuning app's worker…</span>
+    {% endif %}
+    <span class="meta-text">{{ localtime(test.created_at).strftime("%b %d, %H:%M:%S") }}</span>
+</div>

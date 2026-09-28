@@ -438,6 +438,7 @@ Unchanged from v6, except for where things live:
 | `Generation` | `d2u.generations` | v6 fields, plus `strategy`, `llm_model` (FK to `ModelConfig`), `prompt_version` (FK), `model` and `prompt_label` (the names at the time, kept if a registry entry changes), `input_tokens`, `output_tokens`, `cost_usd`, `latency_ms`. Drops `program_version`. |
 | `Feedback` | `d2u.generations` | unchanged |
 | `ModelConfig` | `d2u.registry` | §7 |
+| `ModelTest` | `tuning_app` (`app.models_ui`) | One Test connection run: the model, the model string at the time, status, latency, error |
 | `PromptVersion`, `PromptPromotion` | `d2u.registry` | §8 |
 | `RuntimeSettings` | `d2u.registry` | singleton: `active_model_id`, `trace_backends`, `default_judge_model_id` |
 | `TraceSpan` | `d2u.traces` | v6, plus an indexed `eval_run_id` |
@@ -486,7 +487,8 @@ docs-to-ui/
 │   ├── pyproject.toml              # depends on d2u and dspy
 │   └── app/
 │       ├── settings.py, urls.py
-│       ├── models_ui/              # model registry screens
+│       ├── models_ui/              # model registry screens, Test connection
+│       ├── settings_ui/            # runtime settings: trace backends, default judge
 │       ├── prompts/                # prompt versions, promotion
 │       ├── goldsets/               # gold sets and editor
 │       ├── evals/                  # eval runs, metrics, comparison

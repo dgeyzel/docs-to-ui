@@ -6,11 +6,9 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from functools import cache
-from pathlib import Path
 
 import psycopg
-from d2u.generation.client import FakeResponses, Usage
+from d2u.generation.client import Usage
 from d2u.generation.exceptions import (
     GenerationFailedError,
     GenerationTimeoutError,
@@ -25,6 +23,7 @@ from d2u.generation.strategies import (
     generate_llm,
     generate_parser,
 )
+from d2u.generations.fakes import fake_responses
 from d2u.generations.models import (
     ErrorCode,
     Generation,
@@ -54,12 +53,9 @@ from d2u.telemetry.api import (
     stage_span,
     tag_current_span,
 )
-from plain.runtime import APP_PATH, settings
+from plain.runtime import settings
 
 logger = logging.getLogger(__name__)
-
-# Repository root: docs_app/app is APP_PATH. Test fixtures live there.
-REPO_ROOT = APP_PATH.parent.parent
 
 
 @dataclass(frozen=True, slots=True)
@@ -438,16 +434,3 @@ def _progress_callback(generation: Generation) -> Callable[[int, int], None]:
         generation.update(fields=["progress"])
 
     return on_progress
-
-
-def fake_responses() -> FakeResponses | None:
-    """Fixture answers for the fake model, when `GENERATIONS_FAKE_RESPONSES` is set."""
-    if not settings.GENERATIONS_FAKE_RESPONSES:
-        return None
-    return _load_fake_responses(settings.GENERATIONS_FAKE_RESPONSES)
-
-
-@cache
-def _load_fake_responses(configured: str) -> FakeResponses:
-    path = Path(configured)
-    return FakeResponses.from_file(path if path.is_absolute() else REPO_ROOT / path)

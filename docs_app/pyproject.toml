@@ -13,7 +13,7 @@ package = false
 d2u = { workspace = true }
 
 [tool.plain.dev.run]
-worker = { cmd = "plain jobs worker --reload --stats-every 0 --max-processes 2" }
+worker = { cmd = "plain jobs worker --reload --queue docs --stats-every 0 --max-processes 2" }
 
 [tool.plain.code.oxc]
 version = "1.84.0"
@@ -29,7 +29,7 @@ extra-paths = [".."]
 [tool.pytest.ini_options]
 # The Docs app hosts the shared library's tests too: DB-backed shared tests
 # need a Plain app with the d2u packages installed.
-testpaths = ["../tests/shared", "../tests/docs_app", "../tests/e2e"]
+testpaths = ["../tests/shared", "../tests/docs_app", "../tests/e2e/docs"]
 pythonpath = [".."]
 # Fixture inputs include test_*.py files that are data, not tests.
 norecursedirs = [".*", "__pycache__", "fixtures"]

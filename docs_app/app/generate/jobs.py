@@ -20,6 +20,9 @@ class GenerateDocJob(Job):
     def __init__(self, generation_id: int) -> None:
         self.generation_id = generation_id
 
+    def default_queue(self) -> str:
+        return "docs"
+
     def default_concurrency_key(self) -> str:
         return f"generation-{self.generation_id}"
 

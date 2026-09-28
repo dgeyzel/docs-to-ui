@@ -25,6 +25,10 @@ class MirrorFeedbackJob(Job):
         self.score = score
         self.comment = comment
 
+    def default_queue(self) -> str:
+        # Feedback is given in the Docs app, whose worker serves this queue (SPEC §14).
+        return "docs"
+
     def default_retries(self) -> int:
         return 3
 

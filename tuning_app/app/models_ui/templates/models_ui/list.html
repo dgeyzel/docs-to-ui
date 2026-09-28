@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% use_elements %}
+
+{% block title %}Models · Docs-to-UI Tuning{% endblock %}
+
+{% block content %}
+<main class="app-container">
+    <section class="card" aria-labelledby="models-heading">
+        <h1 class="card-title" id="models-heading">Models</h1>
+        <p class="hint">
+            Every LLM call goes through LiteLLM. API keys stay in environment variables; a model only names the variable.
+        </p>
+        <div class="button-row">
+            <a class="button button-primary" href="{{ url('models:create') }}">Add model</a>
+        </div>
+        {% if models %}
+        <div class="table-scroll">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Name</th>
+                        <th scope="col">LiteLLM model</th>
+                        <th scope="col">Roles</th>
+                        <th scope="col">Key</th>
+                        <th scope="col">Last test</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for model in models %}
+                    <tr>
+                        <td>
+                            <a href="{{ url('models:detail', id=model.id) }}">{{ model.name }}</a>
+                            {% if model.id == active_id %}<span class="role-badge">Docs app model</span>{% endif %}
+                            {% if model.id == judge_id %}<span class="role-badge">Default judge</span>{% endif %}
+                        </td>
+                        <td class="mono-text">{{ model.litellm_model }}</td>
+                        <td>
+                            {% if model.enabled_for_generation %}generation{% endif %}{% if model.enabled_for_generation and model.enabled_for_judging %}, {% endif %}{% if model.enabled_for_judging %}judging{% endif %}{% if not model.enabled_for_generation and not model.enabled_for_judging %}<span class="empty-cell">—</span>{% endif %}
+                        </td>
+                        <td>
+                            {% if not model.api_key_env %}<span class="empty-cell">none needed</span>{% elif key_set[model.id] %}<span class="mono-text">{{ model.api_key_env }}</span> set{% else %}<span class="mono-text">{{ model.api_key_env }}</span> <span class="form-error">missing</span>{% endif %}
+                        </td>
+                        <td>
+                            {% set test = tests.get(model.id) %}
+                            {% if test %}<StatusPill status={test.status} />{% else %}<span class="empty-cell">never</span>{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="empty-state">No models yet.</p>
+        {% endif %}
+    </section>
+</main>
+{% endblock %}

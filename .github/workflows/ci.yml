@@ -45,7 +45,7 @@ jobs:
           uv run --directory docs_app plain migrations create --check
           uv run --directory tuning_app plain migrations create --check
       - name: Schema
-        run: uv run --directory docs_app plain postgres sync
+        run: uv run --directory tuning_app plain postgres sync
       - name: Preflight
         run: |
           uv run --directory docs_app plain preflight
@@ -56,8 +56,10 @@ jobs:
         run: uv run --directory tuning_app pytest
       - name: Install Playwright browser
         run: uv run playwright install --with-deps chromium
-      - name: E2E tests
+      - name: E2E tests (Docs app journeys)
         run: uv run --directory docs_app pytest -m e2e
+      - name: E2E tests (Tuning app and cross-app journeys)
+        run: uv run --directory tuning_app pytest -m e2e
 
   image:
     runs-on: ubuntu-latest

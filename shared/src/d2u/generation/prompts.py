@@ -143,3 +143,16 @@ def overview_messages(*, title: str, summaries: list[str]) -> list[Message]:
         {"role": "system", "content": overview_instructions()},
         {"role": "user", "content": f"{OVERVIEW_MARKER}\nAPI: {title}\n\n{listing}"},
     ]
+
+
+CONNECTION_CHECK_MARKER = "Connection check:"
+
+
+def connection_check_messages() -> list[Message]:
+    """The smallest structured-output request, for a model's Test connection."""
+    return [
+        {
+            "role": "user",
+            "content": f"{CONNECTION_CHECK_MARKER} answer with ok set to true.",
+        }
+    ]

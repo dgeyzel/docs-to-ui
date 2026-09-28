@@ -69,3 +69,11 @@ class GeneratedDocs(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     operations: list[OperationDocs]
+
+
+class ConnectionCheck(BaseModel):
+    """The answer to a model registry connection test (SPEC §7)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    ok: bool

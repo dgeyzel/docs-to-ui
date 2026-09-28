@@ -1,0 +1,34 @@
+<fieldset class="form-group choice-group" id="model-params">
+    <legend class="form-label">Call parameters</legend>
+    {% if param_rows %}
+    <span class="hint">Only the parameters LiteLLM supports for this model are offered. Leave a field empty to use the provider's default.</span>
+    <div class="param-grid">
+        {% for row in param_rows %}
+        <div class="form-group">
+            <label class="form-label" for="{{ row.input_name }}">{{ row.spec.label }} <span class="hint mono-text">{{ row.spec.name }}</span></label>
+            {% if row.spec.choices %}
+            <select class="select" id="{{ row.input_name }}" name="{{ row.input_name }}">
+                <option value="" {% if not row.value %}selected{% endif %}>Default</option>
+                {% for choice in row.spec.choices %}
+                <option value="{{ choice }}" {% if row.value == choice %}selected{% endif %}>{{ choice }}</option>
+                {% endfor %}
+            </select>
+            {% else %}
+            <input
+                class="file-input"
+                id="{{ row.input_name }}"
+                name="{{ row.input_name }}"
+                inputmode="decimal"
+                value="{{ row.value }}"
+                {% if row.spec.minimum is not none %}placeholder="{{ '%g'|format(row.spec.minimum) }} to {{ '%g'|format(row.spec.maximum) }}"{% endif %}
+            >
+            {% endif %}
+            {% if row.spec.help %}<span class="hint">{{ row.spec.help }}</span>{% endif %}
+            {% if row.error %}<span class="form-error" role="alert">{{ row.error }}</span>{% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <span class="hint">No parameters are offered: LiteLLM doesn't recognize this model string.</span>
+    {% endif %}
+</fieldset>

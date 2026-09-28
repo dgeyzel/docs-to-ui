@@ -44,6 +44,22 @@
             <span class="form-error" role="alert">{{ error }}</span>
             {% endfor %}
         </fieldset>
+        <div class="form-group">
+            <label class="form-label" for="{{ form.default_judge.html_id }}">Default judge</label>
+            <select class="select" id="{{ form.default_judge.html_id }}" name="{{ form.default_judge.html_name }}">
+                <option value="" {% if not form.default_judge.value() %}selected{% endif %}>None</option>
+                {% for value, label in form.default_judge.field.choices %}
+                <option value="{{ value }}" {% if value == form.default_judge.value()|string %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+            <span class="hint">Preselected when you start an eval run. Only models enabled for judging are listed. It should differ from the model being evaluated.</span>
+            {% if judge_is_generation_model %}
+            <span class="form-error" role="alert">The default judge is also the Docs app's model, so evals of that model grade themselves.</span>
+            {% endif %}
+            {% for error in form.default_judge.errors %}
+            <span class="form-error" role="alert">{{ error }}</span>
+            {% endfor %}
+        </div>
         <div>
             <button type="submit" class="button button-primary">Save settings</button>
         </div>

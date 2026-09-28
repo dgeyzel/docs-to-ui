@@ -18,7 +18,7 @@ The project is being reworked into two Plain apps that share one Postgres databa
 | App | Role |
 | --- | --- |
 | **Docs app** (`docs_app/`) | Generates and shows documentation pages. This is everything described in [Features](#features). |
-| **Tuning app** (`tuning_app/`) | Evaluates and tunes the Docs app through a web UI. Today it has the shared trace viewer and the Settings page where trace backends are chosen; model management, gold sets, evals and optimization arrive in R4 and R5. |
+| **Tuning app** (`tuning_app/`) | Evaluates and tunes the Docs app through a web UI. Today it has model management, the Settings page (trace backends and the default judge) and the shared trace viewer; gold sets, evals and optimization arrive later in R4 and in R5. |
 
 The shared `d2u` library (`shared/`) holds the contracts, parsers, telemetry, trace store and design system. The apps may later merge into one app with a Tuning section.
 
@@ -28,11 +28,11 @@ The shared `d2u` library (`shared/`) holds the contracts, parsers, telemetry, tr
 | **R1** | Restructure into a uv workspace (`shared`, `docs_app`, `tuning_app`) with no behavior change | Done |
 | **R2** | Direct LiteLLM generation in the Docs app, model and prompt registry, 1 MB input cap, DSPy removed from the Docs app | Done |
 | **R3** | Trace backend selectable in the UI | Done |
-| **R4** | Tuning app: models, gold sets, evals and metrics, run comparison | Planned |
+| **R4** | Tuning app: models, gold sets, evals and metrics, run comparison | In progress (R4a, models: done) |
 | **R5** | Tuning app: DSPy optimization and prompt promotion | Planned |
 | **R6** | Containers for both apps, CI, docs | Planned |
 
-Until the Tuning app's UI arrives in R4, models and prompt versions are managed through the seeded defaults (see [Models and prompt versions](#models-and-prompt-versions)). Where the code differs from the spec, see [Development Status](#development-status).
+Models are managed in the Tuning app; prompt versions keep their seeded defaults until R5 (see [Models and prompt versions](#models-and-prompt-versions)). Where the code differs from the spec, see [Development Status](#development-status).
 
 ## Features
 
@@ -122,11 +122,11 @@ Run the install script. It copies each app's `.env.example` to `.env` (in `docs_
 ./scripts/install
 ```
 
-Start Postgres and create the schema. Both apps share the database, so either one can apply it:
+Start Postgres and create the schema. Both apps share the database; the Tuning app installs every shared package plus its own tables, so syncing from it creates everything:
 
 ```bash
 docker compose up -d --wait
-uv run --directory docs_app plain postgres sync
+uv run --directory tuning_app plain postgres sync
 ```
 
 Put your provider keys in `docs_app/.env` (and in `tuning_app/.env` for evaluations):
@@ -192,7 +192,7 @@ The script checks the manifest and all 87 required tokens (light values plus bot
 
 ### Models and prompt versions
 
-Models, prompt versions and the active choices live in the shared database (the `d2u.registry` package) rather than in settings. The Tuning app's UI for managing them arrives in R4; until then the seeded defaults apply:
+Models, prompt versions and the active choices live in the shared database (the `d2u.registry` package) rather than in settings. Models are managed on the Tuning app's **Models** page; prompt versions get their UI in R5. The seeded defaults:
 
 | Seeded entry | Value |
 | --- | --- |
@@ -200,15 +200,7 @@ Models, prompt versions and the active choices live in the shared database (the 
 | Default judge | `Claude Sonnet 4.5` (`anthropic/claude-sonnet-4-5`, key in `ANTHROPIC_API_KEY`) |
 | Active prompts | `baseline` for OpenAPI and Python, for both the `llm` and `hybrid` strategies, from `shared/src/d2u/prompts/` |
 
-To change the active model before R4, use Plain's shell from either app:
-
-```bash
-uv run --directory docs_app plain shell
->>> from d2u.registry.models import ModelConfig, RuntimeSettings
->>> settings = RuntimeSettings.load()
->>> settings.active_model = ModelConfig.query.get(name="Claude Sonnet 4.5")
->>> settings.update()
-```
+On the **Models** page (`https://localhost:8444/tuning/models`) you can add and edit models, run **Test connection** (a minimal structured-output call, run by the Tuning app's worker, showing latency or the error) and **Activate for the Docs app**. The form offers only the call parameters LiteLLM reports as supported for the model string. The default judge is chosen on the **Settings** page among models enabled for judging.
 
 A model's parameters are passed to LiteLLM as given, except that Gemini 3 models never receive `temperature`, `top_p` or `top_k`, and keys the client sets itself (such as `api_key`) are refused. API keys are never stored; a model only names the environment variable that holds its key.
 
@@ -248,7 +240,7 @@ docker run -d --name docs-to-ui-worker \
   -e PLAIN_SECRET_KEY=change-me \
   -e DATABASE_URL=postgresql://postgres:postgres@host.docker.internal:5432/docs_to_ui \
   -e GEMINI_API_KEY=your-gemini-api-key \
-  docs-to-ui:prod plain jobs worker
+  docs-to-ui:prod plain jobs worker --queue docs
 ```
 
 ## Running the Application
@@ -262,9 +254,9 @@ uv run --directory docs_app plain dev --hostname localhost --port 8443
 uv run --directory tuning_app plain dev --hostname localhost --port 8444
 ```
 
-Each command loads that app's `.env`, runs preflight checks and starts its web server with auto-reload. The Docs app also starts its background job worker (configured in `[tool.plain.dev.run]` in `docs_app/pyproject.toml`). Open the Docs app at `https://localhost:8443` and the Tuning app at `https://localhost:8444/tuning`; on Windows, WSL forwards localhost automatically. `--hostname localhost` avoids `plain dev` editing `/etc/hosts`, which needs `sudo`.
+Each command loads that app's `.env`, runs preflight checks and starts its web server with auto-reload, plus that app's background job worker (configured in `[tool.plain.dev.run]` in each `pyproject.toml`). The two apps share the job tables, so each worker serves only its own queue: `docs` for the Docs app, `tuning` for the Tuning app. Open the Docs app at `https://localhost:8443` and the Tuning app at `https://localhost:8444/tuning`; on Windows, WSL forwards localhost automatically. `--hostname localhost` avoids `plain dev` editing `/etc/hosts`, which needs `sudo`.
 
-The Docs app's worker is required: without it, generations stay in "Waiting for a worker…".
+The workers are required: without the Docs app's, generations stay in "Waiting for a worker…"; without the Tuning app's, Test connection never finishes.
 
 ### Stopping
 
@@ -356,7 +348,8 @@ docs-to-ui/
 │   │   ├── settings.py, urls.py Every route under /tuning/
 │   │   ├── templates/           App shell
 │   │   ├── dashboard/           Placeholder dashboard (R4 builds the real UI)
-│   │   └── settings_ui/         Settings page: trace backends
+│   │   ├── models_ui/           Model registry: list, add, edit, Test connection, activate
+│   │   └── settings_ui/         Settings page: trace backends, default judge
 │   └── dspy_pipeline/           Datasets and metric code, the starting point for R4
 ├── design/docs-to-ui/           OpenDesign package: manifest, DESIGN.md, tokens, reference mockups
 ├── scripts/
@@ -367,7 +360,7 @@ docs-to-ui/
 │   ├── shared/                  Mirrors d2u (run by the Docs app's test suite)
 │   ├── docs_app/                Docs app unit and integration tests
 │   ├── tuning_app/              Tuning app and pipeline tests
-│   └── e2e/                     Playwright journeys against the Docs app (and the Tuning app)
+│   └── e2e/                     Playwright journeys: docs/ (Docs app), tuning/ (Tuning app, cross-app)
 ├── .github/workflows/           ci.yml (every push; evals.yml returns in R5)
 ├── Dockerfile                   base, test and prod stages
 ├── docker-compose.yml           Postgres for development
@@ -470,10 +463,11 @@ uv run --directory docs_app pytest
 uv run --directory tuning_app pytest
 ```
 
-End-to-end tests. Each test starts a real server and job worker against an isolated database and drives headless Chromium:
+End-to-end tests. Each test starts real servers and job workers against an isolated database and drives headless Chromium. Docs app journeys (`tests/e2e/docs/`) run from the Docs app; Tuning app and cross-app journeys (`tests/e2e/tuning/`) run from the Tuning app, whose test database also has the Tuning-only tables:
 
 ```bash
 uv run --directory docs_app pytest -m e2e
+uv run --directory tuning_app pytest -m e2e
 ```
 
 The full containerized suite, the same checks CI runs, with nothing installed locally except Docker:
@@ -495,21 +489,23 @@ tests/docs_app/            Docs app: presentation, sanitizer, job states and fai
                            the no-DSPy guard,
                            feedback and mirroring, native export and trace viewer, telemetry
                            wiring (one trace ID), runtime backend switching, read-only selection
-tests/tuning_app/          Tuning app skeleton, Settings page, metric code and datasets
+tests/tuning_app/          Tuning app skeleton, Settings page, model registry and Test connection,
+                           job queues, metric code and datasets
 tests/e2e/                 Paste, zip upload, progress, failure and retry, trace viewer,
-                           example tabs and copy, feedback, exports opened from disk, switching
-                           trace backends in the Tuning app
+                           example tabs and copy, feedback, exports opened from disk (docs/);
+                           switching trace backends, adding and testing a model (tuning/)
 tests/fixtures/            OpenAPI (single and multi-file), a Python package, fake-model responses,
                            and each adapter's contract.json
 ```
 
 ## Development Status
 
-v6 (milestones M1–M5) is complete, and v7 is in progress on the `redesign/v7` branch: R1 (the workspace restructure), R2 (direct LLM generation and the registry) and R3 (trace backends chosen in the UI) are done; R4–R6 are planned. See the milestone table in [About This Project](#about-this-project) and `SPEC.md` §18.
+v6 (milestones M1–M5) is complete, and v7 is in progress on the `redesign/v7` branch: R1 (the workspace restructure), R2 (direct LLM generation and the registry) and R3 (trace backends chosen in the UI) are done; R4 is in progress (R4a, model management, is done); R5–R6 are planned. See the milestone table in [About This Project](#about-this-project) and `SPEC.md` §18.
 
 Known gaps and deliberate differences from `SPEC.md`:
 
-- **No management UI yet.** Models, prompt versions and the active choices can only be changed from Plain's shell until the Tuning app's UI arrives in R4.
+- **No prompt version UI yet.** Prompt versions keep their seeded baselines until R5; models and the default judge are managed in the Tuning app.
+- **Connection test results are stored** in a Tuning-only `ModelTest` table (added to `SPEC.md` §13), so the model page can show the latest result after its job finishes.
 - **An extra telemetry setting.** `PLAIN_TELEMETRY_EXPORT_ENABLED` (not in v7's first draft) lets the test suites and the image build turn tracing off now that `PLAIN_TELEMETRY_BACKENDS` is gone; `SPEC.md` §16 lists it.
 - **The trace viewer has no eval-run filter yet.** `TraceSpan.eval_run_id` and its filter (SPEC §11.4) arrive with eval runs in R4.
 - **Langfuse credentials are per process.** Each app reads the `LANGFUSE_*` variables from its own environment, so the Settings page can only check the Tuning app's. An app without them skips Langfuse even when it's chosen, and says so on its pages.
@@ -528,14 +524,14 @@ Postgres isn't running, or `DATABASE_URL` is missing from the app's `.env`. Star
 
 ```bash
 docker compose up -d --wait
-uv run --directory docs_app plain postgres sync
+uv run --directory tuning_app plain postgres sync
 ```
 
 If `docker` isn't found in WSL, turn on WSL integration for your distribution in Docker Desktop's settings.
 
 ### A generation stays at "Waiting for a worker…"
 
-No job worker is running. The Docs app's `plain dev` starts one; otherwise run `uv run --directory docs_app plain jobs worker` in another terminal.
+No job worker is running. The Docs app's `plain dev` starts one; otherwise run `uv run --directory docs_app plain jobs worker --queue docs` in another terminal.
 
 ### Generations fail with "Model provider error"
 

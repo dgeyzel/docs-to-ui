@@ -6,10 +6,13 @@ from pathlib import Path
 
 import pytest
 from plain.pytest.browser import TestBrowser
+from playwright.sync_api import Browser
 
 from tests.helpers import activate_fake_model
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+DOCS_APP = "docs_app"
+TUNING_APP = "tuning_app"
 PROVIDER_KEY_VARIABLES = ("GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY")
 LANGFUSE_VARIABLES = (
     "LANGFUSE_BASE_URL",
@@ -61,9 +64,22 @@ def e2e_environment(
     request.getfixturevalue("testbrowser")
 
 
-@pytest.fixture
-def worker(testbrowser) -> Iterator[None]:
-    """A job worker using the same isolated database as the test server."""
+def _app_server(
+    browser: Browser, testbrowser: TestBrowser, app_dir: str
+) -> TestBrowser:
+    """A second app server on the test server's isolated database."""
+    server = TestBrowser(browser=browser, database_url=testbrowser.database_url)
+    # `plain server` runs the app in its working directory.
+    previous = Path.cwd()
+    os.chdir(REPO_ROOT / app_dir)
+    try:
+        server.run_server()
+    finally:
+        os.chdir(previous)
+    return server
+
+
+def _worker(testbrowser: TestBrowser, app_dir: str, queue: str) -> Iterator[None]:
     env = os.environ.copy()
     env["DATABASE_URL"] = testbrowser.database_url
     process = subprocess.Popen(
@@ -73,11 +89,14 @@ def worker(testbrowser) -> Iterator[None]:
             "plain",
             "jobs",
             "worker",
+            "--queue",
+            queue,
             "--max-processes",
             "1",
             "--stats-every",
             "0",
         ],
+        cwd=REPO_ROOT / app_dir,
         env=env,
     )
     try:
@@ -88,17 +107,42 @@ def worker(testbrowser) -> Iterator[None]:
 
 
 @pytest.fixture
-def tuning_browser(browser, testbrowser) -> Iterator[TestBrowser]:
-    """A Tuning app server on the Docs app server's isolated database."""
-    tuning = TestBrowser(browser=browser, database_url=testbrowser.database_url)
-    # The server runs the app in its working directory.
-    previous = Path.cwd()
-    os.chdir(REPO_ROOT / "tuning_app")
+def docs_browser(browser: Browser, testbrowser: TestBrowser) -> Iterator[TestBrowser]:
+    """The Docs app server: the test server, or a second one beside the Tuning app."""
+    if Path.cwd().name == DOCS_APP:
+        yield testbrowser
+        return
+    server = _app_server(browser, testbrowser, DOCS_APP)
     try:
-        tuning.run_server()
+        yield server
     finally:
-        os.chdir(previous)
+        server.cleanup_server()
+
+
+@pytest.fixture
+def tuning_browser(browser: Browser, testbrowser: TestBrowser) -> Iterator[TestBrowser]:
+    """The Tuning app server: the test server, or a second one beside the Docs app.
+
+    Tuning-only tables exist only when the suite runs from `tuning_app`, so
+    journeys that need them live in `tests/e2e/tuning`.
+    """
+    if Path.cwd().name == TUNING_APP:
+        yield testbrowser
+        return
+    server = _app_server(browser, testbrowser, TUNING_APP)
     try:
-        yield tuning
+        yield server
     finally:
-        tuning.cleanup_server()
+        server.cleanup_server()
+
+
+@pytest.fixture
+def worker(testbrowser: TestBrowser) -> Iterator[None]:
+    """A Docs app job worker using the same isolated database as the test server."""
+    yield from _worker(testbrowser, DOCS_APP, "docs")
+
+
+@pytest.fixture
+def tuning_worker(testbrowser: TestBrowser) -> Iterator[None]:
+    """A Tuning app job worker using the same isolated database as the test server."""
+    yield from _worker(testbrowser, TUNING_APP, "tuning")

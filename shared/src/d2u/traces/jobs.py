@@ -13,6 +13,10 @@ logger = logging.getLogger(__name__)
 class PruneTracesJob(Job):
     """Delete native spans older than `TRACES_RETENTION_DAYS`."""
 
+    def default_queue(self) -> str:
+        # Scheduled by the Docs app, whose worker serves this queue (SPEC §14).
+        return "docs"
+
     def run(self) -> None:
         cutoff = datetime.now(UTC) - timedelta(days=settings.TRACES_RETENTION_DAYS)
         deleted = TraceSpan.query.where(TraceSpan.start_time.lt(cutoff)).delete()

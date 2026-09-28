@@ -56,14 +56,14 @@ Plain resolves its app as `./app`, so app commands run inside a project director
 | Add a dependency to one member | `uv add --package <d2u\|docs\|tuning> <pkg>` |
 | Add a dev-only dependency | `uv add --group dev <pkg>` (workspace root) |
 | Run the Docs app (web + worker, loads `docs_app/.env`) | `uv run --directory docs_app plain dev --hostname localhost --port 8443` |
-| Run the Tuning app (web, loads `tuning_app/.env`) | `uv run --directory tuning_app plain dev --hostname localhost --port 8444` |
+| Run the Tuning app (web + worker, loads `tuning_app/.env`) | `uv run --directory tuning_app plain dev --hostname localhost --port 8444` |
 | Create a local package in an app | `uv run --directory <app dir> plain create <name>` |
-| Schema changes (either app; shared migrations are identical) | `uv run --directory docs_app plain postgres sync` |
+| Schema changes (shared migrations are identical in both apps; the Tuning app also has its own tables, so sync from it) | `uv run --directory tuning_app plain postgres sync` |
 | Preflight checks | `uv run --directory <app dir> plain preflight` |
 | Auto-fix lint and format | `uv run plain-code fix`, then `uv run --directory docs_app plain fix --skip-oxc . ../tests/docs_app` and `uv run --directory tuning_app plain fix --skip-oxc . ../tests/tuning_app` |
 | Lint, format, and type check without changing files | The same three commands with `code check` in place of `fix` (`uv run plain-code check` at the root) |
 | Unit + integration tests (the default suite) | `uv run --directory docs_app pytest` (shared and Docs tests) and `uv run --directory tuning_app pytest` |
-| E2E tests | `uv run --directory docs_app pytest -m e2e` |
+| E2E tests | `uv run --directory docs_app pytest -m e2e` (Docs app journeys) and `uv run --directory tuning_app pytest -m e2e` (Tuning app and cross-app journeys) |
 | Full containerized suite (same as CI) | `docker compose -f docker-compose.test.yml up --build --abort-on-container-exit` |
 | Framework docs for a package | `uv run plain docs <package>` (e.g. `plain docs jobs`) |
 | Sync Plain's own agent rules | `uv run plain agent install` (writes to `.claude/rules/` and `.claude/skills/`) |

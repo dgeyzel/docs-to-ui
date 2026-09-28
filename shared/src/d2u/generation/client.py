@@ -134,6 +134,14 @@ def is_gemini_3_or_newer(litellm_model: str) -> bool:
     return bool(match) and int(match.group(1)) >= 3
 
 
+def api_key_is_set(model: ModelSpec) -> bool:
+    """Whether the variable named by `api_key_env` is set (or none is needed).
+
+    Only presence is reported; the key itself never leaves this module.
+    """
+    return not model.api_key_env or bool(os.environ.get(model.api_key_env))
+
+
 def check_params(litellm_model: str, params: Mapping[str, Any]) -> None:
     """Reject call parameters a model must never receive.
 

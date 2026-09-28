@@ -37,9 +37,9 @@ def visit_until_traced(page: Page) -> None:
 
 
 def test_trace_backends_are_switched_in_the_tuning_app_without_a_restart(
-    testbrowser, tuning_browser
+    docs_browser, tuning_browser
 ) -> None:
-    docs = testbrowser.new_page()
+    docs = docs_browser.new_page()
     tuning = tuning_browser.new_page()
 
     docs.goto(BEFORE_PATH)

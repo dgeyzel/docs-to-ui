@@ -18,6 +18,9 @@ package = false
 [tool.uv.sources]
 d2u = { workspace = true }
 
+[tool.plain.dev.run]
+worker = { cmd = "plain jobs worker --reload --queue tuning --stats-every 0 --max-processes 2" }
+
 [tool.plain.code]
 # Run from this directory on the app and its tests, with --skip-oxc: all
 # CSS/JS lives in shared/ and is checked from the root (AGENTS.md §1).
@@ -28,7 +31,7 @@ exclude = ["**/design/**", "**/d2u/ui/assets/css/tokens.css", "*.md", "**/tests/
 extra-paths = [".."]
 
 [tool.pytest.ini_options]
-testpaths = ["../tests/tuning_app"]
+testpaths = ["../tests/tuning_app", "../tests/e2e/tuning"]
 pythonpath = [".."]
 norecursedirs = [".*", "__pycache__", "fixtures"]
 addopts = "-m 'not e2e' --strict-markers --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,::1,localhost"
