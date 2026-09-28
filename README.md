@@ -18,7 +18,7 @@ The project is being reworked into two Plain apps that share one Postgres databa
 | App | Role |
 | --- | --- |
 | **Docs app** (`docs_app/`) | Generates and shows documentation pages. This is everything described in [Features](#features). |
-| **Tuning app** (`tuning_app/`) | Evaluates and tunes the Docs app through a web UI. Today it has model management, the Settings page (trace backends and the default judge) and the shared trace viewer; gold sets, evals and optimization arrive later in R4 and in R5. |
+| **Tuning app** (`tuning_app/`) | Evaluates and tunes the Docs app through a web UI. Today it has model management, gold sets, the Settings page (trace backends and the default judge) and the shared trace viewer; evals arrive later in R4 and optimization in R5. |
 
 The shared `d2u` library (`shared/`) holds the contracts, parsers, telemetry, trace store and design system. The apps may later merge into one app with a Tuning section.
 
@@ -28,7 +28,7 @@ The shared `d2u` library (`shared/`) holds the contracts, parsers, telemetry, tr
 | **R1** | Restructure into a uv workspace (`shared`, `docs_app`, `tuning_app`) with no behavior change | Done |
 | **R2** | Direct LiteLLM generation in the Docs app, model and prompt registry, 1 MB input cap, DSPy removed from the Docs app | Done |
 | **R3** | Trace backend selectable in the UI | Done |
-| **R4** | Tuning app: models, gold sets, evals and metrics, run comparison | In progress (R4a, models: done) |
+| **R4** | Tuning app: models, gold sets, evals and metrics, run comparison | In progress (R4a models, R4b gold sets: done) |
 | **R5** | Tuning app: DSPy optimization and prompt promotion | Planned |
 | **R6** | Containers for both apps, CI, docs | Planned |
 
@@ -176,6 +176,7 @@ PLAIN_GENERATIONS_FAKE_RESPONSES=tests/fixtures/llm/fake.json
 | `PLAIN_TELEMETRY_SETTINGS_TTL_S` | `10` | How long each process caches the trace backends chosen in the Tuning app. |
 | `PLAIN_TELEMETRY_EXPORT_ENABLED` | `true` | `false` attaches no trace backend at all, whatever is chosen. The test suites and the image build turn it off. |
 | `PLAIN_TRACES_RETENTION_DAYS` | `30` | Native spans older than this are pruned daily. |
+| `PLAIN_GOLDSETS_MAX_IMPORT_BYTES` | `10485760` | Largest gold-set JSON file the Tuning app imports (10 MB). |
 | `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_PROJECT_ID` | — | Needed before Langfuse can be chosen. Set them in both apps' `.env` files. |
 
 Which trace backends receive spans (native, Langfuse, both or none) isn't an environment variable: it is chosen on the Tuning app's **Settings** page and applies to both apps within `PLAIN_TELEMETRY_SETTINGS_TTL_S` seconds, with no restart.
@@ -308,11 +309,23 @@ Open the Tuning app's **Settings** page (`https://localhost:8444/tuning/settings
 
 Langfuse stays greyed out until its four `LANGFUSE_*` variables are set; the page names the missing ones. Set them in both `docs_app/.env` and `tuning_app/.env` and restart both apps once. With Langfuse chosen, traces appear in your Langfuse project, feedback appears as `user_feedback` scores, and **View trace** links to the first chosen backend with a viewer (native, if chosen). The in-app trace list shows native traces only.
 
-### 10. Evaluate and tune
+### 10. Curate gold sets
 
-Evaluation and tuning move into the Tuning app's UI in R4 (models, gold sets, eval runs and comparisons) and R5 (DSPy optimization and prompt promotion). The v6 command-line pipeline and its program artifacts are retired; its datasets (`tuning_app/dspy_pipeline/datasets/`) and metric code stay as the starting point for R4.
+A gold set is a named collection of examples for one language: an input, exactly as the Docs app would read it, and the reference page it should produce. Only approved examples are used by eval runs (arriving later in R4).
 
-### 11. Switch themes
+1. Open **Gold sets** in the Tuning app. Create a set, import a gold-set JSON file, or click **Load starter examples** for a draft set per language built from the shipped inputs.
+2. In a set, click **Add example**, paste or upload source (a file or a `.zip`, up to 1 MB), and choose how to fill the expected page: start empty, seed from the parser, or seed from a model (the `llm` strategy with the active prompt, run by the Tuning app's worker; the page reloads when it's done).
+3. Edit the expected page in the form editor: operations, parameters (name, location, type, required, default, description), summaries, descriptions and code examples. **Add** and **Remove** buttons change rows without saving; **Save expected page** validates everything. Operation and parameter IDs are derived from the method and path, or the qualified name, never typed in.
+4. Set the split (train, dev or test) and reviewer notes, then **Approve**. Every change is kept in the example's history. On the set page, select examples and use **Assign split** to move many at once.
+5. **Import a Docs app generation** copies a finished generation's input and page as a draft example.
+
+The set page shows a content hash of its approved examples; eval runs record it, so results can be tied to the exact examples they were measured on.
+
+### 11. Evaluate and tune
+
+Eval runs and comparisons arrive later in R4, and DSPy optimization and prompt promotion in R5. The v6 metric code in `tuning_app/dspy_pipeline/metrics/` is the starting point for the eval metrics.
+
+### 12. Switch themes
 
 Click **Toggle theme** in the header. The choice is remembered in your browser. Exported pages follow the reader's system setting.
 
@@ -323,13 +336,14 @@ docs-to-ui/
 ├── pyproject.toml               uv workspace root: members and shared dev tooling
 ├── shared/                      The d2u library (workspace member)
 │   └── src/d2u/
-│       ├── schemas/             Pydantic contracts: ApiSurface, Operation, DocPage, ...
+│       ├── schemas/             Pydantic contracts: ApiSurface, Operation, DocPage, gold inputs, ...
 │       ├── generation/          Plain-free: LiteLLM client, prompts, splitting, ID derivation,
-│       │                        strategies (llm, hybrid, parser), batching and merging
+│       │                        strategies (llm, hybrid, parser), batching and merging,
+│       │                        running a strategy on a bundle (evals, seeding), parameter offers
 │       ├── prompts/             Baseline prompt files per language and strategy, overview prompt
 │       ├── registry/            Plain package: ModelConfig, PromptVersion, RuntimeSettings, seeds
-│       ├── sources/             Bundles, the safe zip reader, adapters (OpenAPI, Python), registry
-│       ├── generations/         Plain package: Generation and Feedback models and settings
+│       ├── sources/             Bundles, input intake, the safe zip reader, adapters, registry
+│       ├── generations/         Plain package: Generation and Feedback, input and fake-model helpers
 │       ├── telemetry/           Plain package: tracer provider, backends, routing processor, api,
 │       │                        MirrorFeedbackJob
 │       ├── traces/              Plain package: TraceSpan, exporter, viewer, PruneTracesJob
@@ -349,8 +363,9 @@ docs-to-ui/
 │   │   ├── templates/           App shell
 │   │   ├── dashboard/           Placeholder dashboard (R4 builds the real UI)
 │   │   ├── models_ui/           Model registry: list, add, edit, Test connection, activate
+│   │   ├── goldsets/            Gold sets: examples, form editor, seeding, imports, starter inputs
 │   │   └── settings_ui/         Settings page: trace backends, default judge
-│   └── dspy_pipeline/           Datasets and metric code, the starting point for R4
+│   └── dspy_pipeline/           v6 metric code, the starting point for R4's eval metrics
 ├── design/docs-to-ui/           OpenDesign package: manifest, DESIGN.md, tokens, reference mockups
 ├── scripts/
 │   ├── install                  First-time setup
@@ -482,7 +497,8 @@ Tests never call a real LLM: database tests make a fake model active, which answ
 
 ```
 tests/shared/              The d2u library: adapters (including the contract suite), zip safety,
-                           LiteLLM client, prompts, splitting, ID derivation, strategies, registry,
+                           input intake, LiteLLM client, prompts, splitting, ID derivation and its
+                           inverse, strategies and the bundle runner, parameter offers, registry,
                            exporter mapping, trace viewer logic, backend availability, routing
                            processor and selection cache, design sync, CSS rule
 tests/docs_app/            Docs app: presentation, sanitizer, job states and failures, strategies, zips,
@@ -490,21 +506,23 @@ tests/docs_app/            Docs app: presentation, sanitizer, job states and fai
                            feedback and mirroring, native export and trace viewer, telemetry
                            wiring (one trace ID), runtime backend switching, read-only selection
 tests/tuning_app/          Tuning app skeleton, Settings page, model registry and Test connection,
-                           job queues, metric code and datasets
+                           job queues, gold sets and the expected-page editor, metric code
 tests/e2e/                 Paste, zip upload, progress, failure and retry, trace viewer,
                            example tabs and copy, feedback, exports opened from disk (docs/);
-                           switching trace backends, adding and testing a model (tuning/)
+                           switching trace backends, adding and testing a model, curating
+                           and seeding gold examples (tuning/)
 tests/fixtures/            OpenAPI (single and multi-file), a Python package, fake-model responses,
                            and each adapter's contract.json
 ```
 
 ## Development Status
 
-v6 (milestones M1–M5) is complete, and v7 is in progress on the `redesign/v7` branch: R1 (the workspace restructure), R2 (direct LLM generation and the registry) and R3 (trace backends chosen in the UI) are done; R4 is in progress (R4a, model management, is done); R5–R6 are planned. See the milestone table in [About This Project](#about-this-project) and `SPEC.md` §18.
+v6 (milestones M1–M5) is complete, and v7 is in progress on the `redesign/v7` branch: R1 (the workspace restructure), R2 (direct LLM generation and the registry) and R3 (trace backends chosen in the UI) are done; R4 is in progress (R4a, model management, and R4b, gold sets, are done); R5–R6 are planned. See the milestone table in [About This Project](#about-this-project) and `SPEC.md` §18.
 
 Known gaps and deliberate differences from `SPEC.md`:
 
 - **No prompt version UI yet.** Prompt versions keep their seeded baselines until R5; models and the default judge are managed in the Tuning app.
+- **Gold examples store the model seed's state.** Seeding from a model runs as `SeedGoldExampleJob` (added to `SPEC.md` §14), and the example records whether it is pending, running or failed.
 - **Connection test results are stored** in a Tuning-only `ModelTest` table (added to `SPEC.md` §13), so the model page can show the latest result after its job finishes.
 - **An extra telemetry setting.** `PLAIN_TELEMETRY_EXPORT_ENABLED` (not in v7's first draft) lets the test suites and the image build turn tracing off now that `PLAIN_TELEMETRY_BACKENDS` is gone; `SPEC.md` §16 lists it.
 - **The trace viewer has no eval-run filter yet.** `TraceSpan.eval_run_id` and its filter (SPEC §11.4) arrive with eval runs in R4.

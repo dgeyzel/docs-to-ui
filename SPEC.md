@@ -442,7 +442,7 @@ Unchanged from v6, except for where things live:
 | `PromptVersion`, `PromptPromotion` | `d2u.registry` | §8 |
 | `RuntimeSettings` | `d2u.registry` | singleton: `active_model_id`, `trace_backends`, `default_judge_model_id` |
 | `TraceSpan` | `d2u.traces` | v6, plus an indexed `eval_run_id` |
-| `GoldSet`, `GoldExample`, `GoldExampleRevision` | `tuning_app` (`app.goldsets`) | §9.2 |
+| `GoldSet`, `GoldExample`, `GoldExampleRevision` | `tuning_app` (`app.goldsets`) | §9.2; an example also records the state of a running model seed (`seed_status`, `seed_error`) |
 | `EvalRun`, `EvalResult` | `tuning_app` (`app.evals`) | §9.3 |
 | `OptimizationRun` | `tuning_app` (`app.optimization`) | §9.4 |
 | `MetricVersion` | `tuning_app` (`app.evals`) | §9.5 |
@@ -456,7 +456,7 @@ Unchanged from v6, except for where things live:
 | App | Worker command | Jobs |
 |---|---|---|
 | Docs app | `plain jobs worker` (queue `docs`) | `GenerateDocJob`, `MirrorFeedbackJob`, `PruneTracesJob` (scheduled) |
-| Tuning app | `plain jobs worker` (queue `tuning`) | `EvalRunJob`, `OptimizationRunJob`, `TestModelJob` |
+| Tuning app | `plain jobs worker` (queue `tuning`) | `EvalRunJob`, `OptimizationRunJob`, `TestModelJob`, `SeedGoldExampleJob` (fills an example's expected page from a model) |
 
 Queues are separate so each app's worker runs only its own jobs, even though both share the job tables.
 
@@ -528,6 +528,7 @@ Environment variables (secrets and per-process settings). Runtime choices live i
 | `PLAIN_TELEMETRY_EXPORT_ENABLED` | `true` | `false` attaches no backend at all, whatever is selected (test suites, image builds) |
 | `PLAIN_TRACES_RETENTION_DAYS` | `30` | Native trace retention |
 | `PLAIN_TUNING_MAX_EVAL_CONCURRENCY` | `4` | Parallel examples in an eval run |
+| `PLAIN_GOLDSETS_MAX_IMPORT_BYTES` | `10485760` | Largest gold-set JSON file accepted by Import (10 MB) |
 | `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_PROJECT_ID` | — | Needed before Langfuse can be selected |
 
 Removed from v6:

@@ -1,10 +1,12 @@
 import pytest
 from d2u.generation.convert import (
     base_operation_id,
+    docpage_to_generated,
     generated_to_docpage,
     merge_parts,
     normalize_path,
 )
+from d2u.schemas.docpage import ApiSurface, DocPage, Operation, Overview, Param
 from d2u.schemas.generated import GeneratedOperation, GeneratedPage, GeneratedParam
 
 
@@ -135,3 +137,96 @@ def test_merge_parts_unions_operations_and_reports_duplicates() -> None:
     ]
     assert merged.operations[0].summary == "List pets"
     assert duplicates == ["GET /pets"]
+
+
+def test_a_stored_page_converts_back_to_what_was_generated() -> None:
+    generated = make_page(
+        make_op(
+            description_md="Lists pets.",
+            params=[
+                GeneratedParam(
+                    name="limit",
+                    location="query",
+                    type="integer",
+                    required=False,
+                    default="20",
+                    description="Page size.",
+                )
+            ],
+            returns="200 array[Pet]",
+            source_path="api.yaml",
+            source_line=3,
+        ),
+        make_op(
+            kind="method",
+            method=None,
+            path=None,
+            qualified_name="acme.Client.get",
+            signature="get(key)",
+            group="Client",
+            summary="Get a key",
+        ),
+    )
+    page, _ = generated_to_docpage(
+        generated, language="openapi", line_counts={"api.yaml": 10}
+    )
+
+    back = docpage_to_generated(page)
+
+    assert back.operations[0].method == "GET"
+    assert back.operations[0].path == "/pets"
+    assert back.operations[0].params[0].description == "Page size."
+    assert back.operations[1].qualified_name == "acme.Client.get"
+    again, _ = generated_to_docpage(
+        back, language="openapi", line_counts={"api.yaml": 10}
+    )
+    assert again == page
+
+
+def test_colliding_ids_convert_back_without_their_suffix() -> None:
+    page, _ = generated_to_docpage(
+        make_page(make_op(), make_op(summary="Again")),
+        language="openapi",
+        line_counts={},
+    )
+
+    back = docpage_to_generated(page)
+
+    assert [op.path for op in back.operations] == ["/pets", "/pets"]
+
+
+def test_operations_without_docs_use_their_source_descriptions() -> None:
+    page = DocPage(
+        strategy="parser",
+        surface=ApiSurface(
+            title="API",
+            language="openapi",
+            operations=[
+                Operation(
+                    id="GET /pets",
+                    kind="http",
+                    signature="GET /pets",
+                    group_hint="pets",
+                    params=[
+                        Param(
+                            id="GET /pets#limit",
+                            name="limit",
+                            location="query",
+                            type="integer",
+                            required=False,
+                            source_description="How many.",
+                        )
+                    ],
+                    source_description="List pets.\nMore detail.",
+                )
+            ],
+        ),
+        overview=Overview(overview_md="", groups={}),
+        operations=[],
+    )
+
+    (op,) = docpage_to_generated(page).operations
+
+    assert op.summary == "List pets."
+    assert op.group == "pets"
+    assert op.params[0].description == "How many."

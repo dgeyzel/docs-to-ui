@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block title %}Gold sets · Docs-to-UI Tuning{% endblock %}
+
+{% block content %}
+<main class="app-container">
+    <section class="card" aria-labelledby="goldsets-heading">
+        <h1 class="card-title" id="goldsets-heading">Gold sets</h1>
+        <p class="hint">Curated inputs with reference pages. Only approved examples are used by eval runs.</p>
+        {% if gold_sets %}
+        <div class="table-scroll">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Name</th>
+                        <th scope="col">Language</th>
+                        <th scope="col">Approved</th>
+                        <th scope="col">Examples</th>
+                        <th scope="col">Updated</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for gold_set in gold_sets %}
+                    <tr>
+                        <td><a href="{{ url('goldsets:detail', id=gold_set.id) }}">{{ gold_set.name }}</a></td>
+                        <td>{{ gold_set.language }}</td>
+                        <td>{{ gold_set.approved }}</td>
+                        <td>{{ gold_set.total }}</td>
+                        <td class="meta-text">{{ localtime(gold_set.updated_at).strftime("%b %d, %H:%M") }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="empty-state">No gold sets yet. Create one, import a file, or load the starter examples.</p>
+        {% endif %}
+        <form method="post" action="{{ url('goldsets:list') }}">
+            <input type="hidden" name="form" value="starter">
+            <button type="submit" class="button button-secondary">Load starter examples</button>
+            <span class="hint">Creates a draft set per language from the shipped inputs, seeded from the parser. Existing starter sets are left alone.</span>
+        </form>
+    </section>
+
+    <form class="card settings-form" method="post" action="{{ url('goldsets:list') }}" aria-labelledby="create-heading">
+        <h2 class="card-title" id="create-heading">New gold set</h2>
+        <input type="hidden" name="form" value="create">
+        {% for error in create_errors %}<p class="form-error" role="alert">{{ error }}</p>{% endfor %}
+        <div class="form-group">
+            <label class="form-label" for="goldset-name">Name</label>
+            <input class="file-input" id="goldset-name" name="name" value="{{ create_values.name }}">
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="goldset-language">Language</label>
+            <select class="select" id="goldset-language" name="language">
+                {% for value, label in languages %}
+                <option value="{{ value }}" {% if value == create_values.language %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div><button type="submit" class="button button-primary">Create gold set</button></div>
+    </form>
+
+    <form class="card settings-form" method="post" action="{{ url('goldsets:list') }}" enctype="multipart/form-data" aria-labelledby="import-heading">
+        <h2 class="card-title" id="import-heading">Import a gold set</h2>
+        <input type="hidden" name="form" value="import">
+        {% for error in import_errors %}<p class="form-error" role="alert">{{ error }}</p>{% endfor %}
+        <div class="form-group">
+            <label class="form-label" for="goldset-file">Gold-set JSON file</label>
+            <input class="file-input" type="file" id="goldset-file" name="file" accept=".json">
+            <span class="hint">An object with name, language and examples; each example has input (origin, files, entry), expected (a DocPage), split, status and notes.</span>
+        </div>
+        <div><button type="submit" class="button button-primary">Import</button></div>
+    </form>
+</main>
+{% endblock %}

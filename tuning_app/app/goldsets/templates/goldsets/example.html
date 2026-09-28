@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+{% use_elements %}
+
+{% macro field_error(name) -%}
+{% if errors.get(name) %}<span class="form-error" role="alert">{{ errors[name] }}</span>{% endif %}
+{%- endmacro %}
+
+{% macro text_input(name, value, label, mono=false) -%}
+<div class="form-group">
+    <label class="form-label" for="{{ name }}">{{ label }}</label>
+    <input class="file-input{% if mono %} mono-text{% endif %}" id="{{ name }}" name="{{ name }}" value="{{ value }}">
+    {{ field_error(name) }}
+</div>
+{%- endmacro %}
+
+{% block title %}Example #{{ example.id }} · {{ gold_set.name }} · Docs-to-UI Tuning{% endblock %}
+
+{% block content %}
+<main class="app-container">
+    <section class="card" aria-labelledby="example-heading">
+        <h1 class="card-title" id="example-heading">Example #{{ example.id }} · {{ example.label }}</h1>
+        <p class="meta-text">
+            <a href="{{ url('goldsets:detail', id=gold_set.id) }}">{{ gold_set.name }}</a>
+            · <StatusPill status={example.status} /> · {{ example.split }} · source <span class="mono-text">{{ example.source }}</span>
+        </p>
+        {% if message %}<p class="form-success" role="status">{{ message }}</p>{% endif %}
+        {% if status_error %}<p class="form-error" role="alert">{{ status_error }}</p>{% endif %}
+        {% if example.seeding %}
+        {% include "goldsets/seed_fragment.html" %}
+        {% elif example.seed_status == "failed" %}
+        <p class="form-error" role="alert">Filling in from a model failed: {{ example.seed_error }}</p>
+        {% endif %}
+        <div class="button-row">
+            <form method="post" action="{{ url('goldsets:example', id=gold_set.id, example_id=example.id) }}">
+                {% if example.status == "approved" %}
+                <input type="hidden" name="form" value="draft">
+                <button type="submit" class="button button-secondary">Return to draft</button>
+                {% else %}
+                <input type="hidden" name="form" value="approve">
+                <button type="submit" class="button button-primary">Approve</button>
+                {% endif %}
+            </form>
+        </div>
+    </section>
+
+    <form class="card settings-form" method="post" action="{{ url('goldsets:example', id=gold_set.id, example_id=example.id) }}" aria-labelledby="review-heading">
+        <h2 class="card-title" id="review-heading">Review</h2>
+        <input type="hidden" name="form" value="review">
+        {% if review_error %}<p class="form-error" role="alert">{{ review_error }}</p>{% endif %}
+        <div class="form-group">
+            <label class="form-label" for="review-split">Split</label>
+            <select class="select" id="review-split" name="split">
+                {% for split in splits %}
+                <option value="{{ split }}" {% if split == example.split %}selected{% endif %}>{{ split }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="review-notes">Reviewer notes</label>
+            <textarea class="textarea textarea-short" id="review-notes" name="notes">{{ example.notes }}</textarea>
+        </div>
+        <div><button type="submit" class="button button-secondary">Save review</button></div>
+    </form>
+
+    <details class="card">
+        <summary class="card-title">Input: {{ files|length }} file{% if files|length != 1 %}s{% endif %} ({{ example.gold_input().origin }}{% if entry %}, entry {{ entry }}{% endif %})</summary>
+        {% for path, text in files %}
+        <div class="form-group">
+            <span class="form-label mono-text">{{ path }}</span>
+            <pre class="source-view"><code>{{ text }}</code></pre>
+        </div>
+        {% endfor %}
+    </details>
+
+    <form class="card settings-form" method="post" action="{{ url('goldsets:example', id=gold_set.id, example_id=example.id) }}" aria-labelledby="fill-heading">
+        <h2 class="card-title" id="fill-heading">Fill the page again</h2>
+        <input type="hidden" name="form" value="fill">
+        <p class="hint">Replaces the expected page. The current one stays in the history.</p>
+        <div class="filter-row">
+            <div class="form-group">
+                <label class="form-label" for="fill-source">From</label>
+                <select class="select" id="fill-source" name="fill">
+                    <option value="parser">The parser</option>
+                    <option value="model">A model</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="fill-model">Model</label>
+                <select class="select" id="fill-model" name="model">
+                    <option value="">Choose a model</option>
+                    {% for value, label in models %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                </select>
+            </div>
+            <div><button type="submit" class="button button-secondary">Replace page</button></div>
+        </div>
+    </form>
+
+    <form class="card settings-form gold-editor" method="post" action="{{ url('goldsets:example', id=gold_set.id, example_id=example.id) }}#editor" id="editor" aria-labelledby="editor-heading">
+        <h2 class="card-title" id="editor-heading">Expected page</h2>
+        <input type="hidden" name="form" value="editor">
+        <input type="hidden" name="op-count" value="{{ state.operations|length }}">
+        {# Pressing Enter in a field saves, rather than pressing the first row button. #}
+        <button type="submit" class="visually-hidden" name="action" value="save" tabindex="-1" aria-hidden="true">Save</button>
+        {% if errors %}<p class="form-error" role="alert">Fix the highlighted fields, then save.</p>{% endif %}
+        {{ text_input("title", state.title, "Title") }}
+        <div class="form-group">
+            <label class="form-label" for="overview_md">Overview (Markdown)</label>
+            <textarea class="textarea textarea-short" id="overview_md" name="overview_md">{{ state.overview_md }}</textarea>
+            {{ field_error("overview_md") }}
+        </div>
+
+        {% for op in state.operations %}
+        {% set i = loop.index0 %}
+        {% set p = "op-" ~ i ~ "-" %}
+        <fieldset class="editor-operation" aria-labelledby="{{ p }}legend">
+            <legend class="form-label" id="{{ p }}legend">Operation {{ i + 1 }} <span class="mono-text">{{ operation_id(op) or "(ID not derivable yet)" }}</span></legend>
+            <div class="param-grid">
+                <div class="form-group">
+                    <label class="form-label" for="{{ p }}kind">Kind</label>
+                    <select class="select" id="{{ p }}kind" name="{{ p }}kind">
+                        {% for kind in kinds %}<option value="{{ kind }}" {% if kind == op.kind %}selected{% endif %}>{{ kind }}</option>{% endfor %}
+                    </select>
+                    {{ field_error(p ~ "kind") }}
+                </div>
+                {{ text_input(p ~ "method", op.method, "HTTP method", mono=true) }}
+                {{ text_input(p ~ "path", op.path, "HTTP path", mono=true) }}
+                {{ text_input(p ~ "qualified_name", op.qualified_name, "Qualified name (Python)", mono=true) }}
+                {{ text_input(p ~ "group", op.group, "Group") }}
+                {{ text_input(p ~ "returns", op.returns, "Returns", mono=true) }}
+                {{ text_input(p ~ "source_path", op.source_path, "Source path", mono=true) }}
+                {{ text_input(p ~ "source_line", op.source_line, "Source line") }}
+            </div>
+            {{ text_input(p ~ "signature", op.signature, "Signature", mono=true) }}
+            {{ text_input(p ~ "summary", op.summary, "Summary (up to 200 characters)") }}
+            <div class="form-group">
+                <label class="form-label" for="{{ p }}description_md">Description (Markdown)</label>
+                <textarea class="textarea textarea-short" id="{{ p }}description_md" name="{{ p }}description_md">{{ op.description_md }}</textarea>
+                {{ field_error(p ~ "description_md") }}
+            </div>
+
+            <input type="hidden" name="{{ p }}param-count" value="{{ op.params|length }}">
+            <div class="table-scroll">
+                <table class="data-table editor-table">
+                    <caption class="form-label">Parameters</caption>
+                    <thead>
+                        <tr><th scope="col">Name</th><th scope="col">Location</th><th scope="col">Type</th><th scope="col">Required</th><th scope="col">Default</th><th scope="col">Description</th><th scope="col"><span class="visually-hidden">Remove</span></th></tr>
+                    </thead>
+                    <tbody>
+                        {% for param in op.params %}
+                        {% set q = p ~ "param-" ~ loop.index0 ~ "-" %}
+                        <tr>
+                            <td><input class="file-input mono-text" name="{{ q }}name" value="{{ param.name }}" aria-label="Parameter {{ loop.index }} name">{{ field_error(q ~ "name") }}</td>
+                            <td>
+                                <select class="select" name="{{ q }}location" aria-label="Parameter {{ loop.index }} location">
+                                    {% for location in locations %}<option value="{{ location }}" {% if location == param.location %}selected{% endif %}>{{ location }}</option>{% endfor %}
+                                </select>
+                                {{ field_error(q ~ "location") }}
+                            </td>
+                            <td><input class="file-input mono-text" name="{{ q }}type" value="{{ param.type }}" aria-label="Parameter {{ loop.index }} type">{{ field_error(q ~ "type") }}</td>
+                            <td><input type="checkbox" name="{{ q }}required" value="true" {% if param.required %}checked{% endif %} aria-label="Parameter {{ loop.index }} required"></td>
+                            <td><input class="file-input mono-text" name="{{ q }}default" value="{{ param.default or '' }}" aria-label="Parameter {{ loop.index }} default"></td>
+                            <td><input class="file-input" name="{{ q }}description" value="{{ param.description }}" aria-label="Parameter {{ loop.index }} description"></td>
+                            <td><button type="submit" class="button button-secondary" name="action" value="remove_param-{{ i }}-{{ loop.index0 }}">Remove</button></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div><button type="submit" class="button button-secondary" name="action" value="add_param-{{ i }}">Add parameter</button></div>
+
+            <input type="hidden" name="{{ p }}example-count" value="{{ op.examples|length }}">
+            {% for code_example in op.examples %}
+            {% set x = p ~ "example-" ~ loop.index0 ~ "-" %}
+            <div class="editor-example">
+                <div class="param-grid">
+                    {{ text_input(x ~ "title", code_example.title, "Example " ~ loop.index ~ " title") }}
+                    {{ text_input(x ~ "language", code_example.language, "Example " ~ loop.index ~ " language", mono=true) }}
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="{{ x }}code">Example {{ loop.index }} code</label>
+                    <textarea class="textarea textarea-short mono-text" id="{{ x }}code" name="{{ x }}code" spellcheck="false">{{ code_example.code }}</textarea>
+                    {{ field_error(x ~ "code") }}
+                </div>
+                <div><button type="submit" class="button button-secondary" name="action" value="remove_example-{{ i }}-{{ loop.index0 }}">Remove example {{ loop.index }}</button></div>
+            </div>
+            {% endfor %}
+            <div class="button-row">
+                <button type="submit" class="button button-secondary" name="action" value="add_example-{{ i }}">Add example</button>
+                <button type="submit" class="button button-secondary" name="action" value="remove_operation-{{ i }}">Remove operation {{ i + 1 }}</button>
+            </div>
+        </fieldset>
+        {% endfor %}
+
+        <div class="button-row">
+            <button type="submit" class="button button-secondary" name="action" value="add_operation">Add operation</button>
+            <button type="submit" class="button button-primary" name="action" value="save">Save expected page</button>
+        </div>
+    </form>
+
+    <section class="card" aria-labelledby="history-heading">
+        <h2 class="card-title" id="history-heading">History</h2>
+        <ol class="history-list">
+            {% for revision in history %}
+            <li>
+                <span class="meta-text">{{ localtime(revision.created_at).strftime("%b %d, %H:%M:%S") }}</span>
+                {{ revision.change }}
+                <span class="hint">({{ revision.status }}, {{ revision.split }}, {{ revision.expected.surface.operations|length }} operations)</span>
+            </li>
+            {% endfor %}
+        </ol>
+    </section>
+</main>
+{% endblock %}

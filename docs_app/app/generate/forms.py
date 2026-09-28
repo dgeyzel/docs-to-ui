@@ -1,12 +1,13 @@
 import re
 from typing import Any
 
+from d2u.generations.inputs import available_adapters
 from d2u.generations.models import InputOrigin, Strategy
 from d2u.sources.bundle import normalize_filename
 from plain import forms
 from plain.runtime import settings
 
-from app.generate.pipeline import SubmittedInput, available_adapters
+from app.generate.pipeline import SubmittedInput
 
 
 def language_choices() -> list[tuple[str, str]]:

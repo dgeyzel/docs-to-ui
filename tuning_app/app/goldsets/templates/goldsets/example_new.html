@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}New example · {{ gold_set.name }} · Docs-to-UI Tuning{% endblock %}
+
+{% block content %}
+<main class="app-container">
+    <form
+        class="card settings-form"
+        method="post"
+        action="{{ url('goldsets:example_create', id=gold_set.id) }}"
+        enctype="multipart/form-data"
+        aria-labelledby="new-example-heading"
+    >
+        <h1 class="card-title" id="new-example-heading">New example in {{ gold_set.name }}</h1>
+        <p class="hint">The input is read exactly as the Docs app reads it, as {{ gold_set.language }}.</p>
+        {% for error in form.non_field_errors %}
+        <p class="form-error" role="alert">{{ error }}</p>
+        {% endfor %}
+        <div class="form-group">
+            <label class="form-label" for="{{ form.file.html_id }}">Source file</label>
+            <input class="file-input" type="file" id="{{ form.file.html_id }}" name="{{ form.file.html_name }}" accept=".yaml,.yml,.json,.py,.zip">
+            {% for error in form.file.errors %}<span class="form-error" role="alert">{{ error }}</span>{% endfor %}
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="{{ form.text.html_id }}">Or paste source</label>
+            <textarea class="textarea" id="{{ form.text.html_id }}" name="{{ form.text.html_name }}" spellcheck="false">{{ form.text.value() or "" }}</textarea>
+            {% for error in form.text.errors %}<span class="form-error" role="alert">{{ error }}</span>{% endfor %}
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="{{ form.entry.html_id }}">Entry file <span class="hint">(optional, for a .zip with several OpenAPI files)</span></label>
+            <input class="file-input" id="{{ form.entry.html_id }}" name="{{ form.entry.html_name }}" value="{{ form.entry.value() or '' }}">
+        </div>
+        <fieldset class="form-group choice-group">
+            <legend class="form-label">Expected page</legend>
+            {% for value, label in form.fill.field.choices %}
+            <div class="choice">
+                <input type="radio" id="fill-{{ value }}" name="{{ form.fill.html_name }}" value="{{ value }}" {% if value == form.fill.value() %}checked{% endif %}>
+                <label for="fill-{{ value }}">{{ label }}</label>
+            </div>
+            {% endfor %}
+            <div class="form-group">
+                <label class="form-label" for="{{ form.model.html_id }}">Model <span class="hint">(for seeding from a model; uses the active llm prompt)</span></label>
+                <select class="select" id="{{ form.model.html_id }}" name="{{ form.model.html_name }}">
+                    <option value="">Choose a model</option>
+                    {% for value, label in models %}
+                    <option value="{{ value }}" {% if value == form.model.value() %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+                {% for error in form.model.errors %}<span class="form-error" role="alert">{{ error }}</span>{% endfor %}
+            </div>
+        </fieldset>
+        <div class="form-group">
+            <label class="form-label" for="{{ form.notes.html_id }}">Notes</label>
+            <textarea class="textarea textarea-short" id="{{ form.notes.html_id }}" name="{{ form.notes.html_name }}">{{ form.notes.value() or "" }}</textarea>
+        </div>
+        <div><button type="submit" class="button button-primary">Create example</button></div>
+    </form>
+</main>
+{% endblock %}

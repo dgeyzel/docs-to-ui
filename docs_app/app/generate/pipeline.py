@@ -24,6 +24,7 @@ from d2u.generation.strategies import (
     generate_parser,
 )
 from d2u.generations.fakes import fake_responses
+from d2u.generations.inputs import archive_limits, available_adapters
 from d2u.generations.models import (
     ErrorCode,
     Generation,
@@ -36,15 +37,8 @@ from d2u.registry.lookups import active_model, require_active_prompt
 from d2u.registry.models import PromptVersion
 from d2u.schemas.docpage import ApiSurface
 from d2u.sources.adapters.base import LanguageAdapter
-from d2u.sources.archive import ArchiveLimits, read_zip
-from d2u.sources.bundle import (
-    FileManifest,
-    SourceBundle,
-    manifest_for,
-    single_file_bundle,
-)
 from d2u.sources.exceptions import InputError
-from d2u.sources.registry import detect, enabled_adapters, get_adapter, select_files
+from d2u.sources.intake import PreparedInput, RawInput, prepare_input
 from d2u.telemetry.api import (
     TraceContext,
     current_trace_context,
@@ -68,20 +62,6 @@ class SubmittedInput:
     language: str
     entry: str = ""
     strategy: Strategy = Strategy.LLM
-
-
-@dataclass(frozen=True, slots=True)
-class PreparedInput:
-    """The bundle an adapter will read, the adapter, and what was read."""
-
-    bundle: SourceBundle
-    adapter: LanguageAdapter
-    manifest: FileManifest
-
-
-def available_adapters() -> list[LanguageAdapter]:
-    """The adapters enabled by `SOURCES_ENABLED_ADAPTERS`."""
-    return enabled_adapters(settings.SOURCES_ENABLED_ADAPTERS)
 
 
 def create_generation(submitted: SubmittedInput) -> Generation:
@@ -349,71 +329,19 @@ def _record_usage(generation: Generation, usage: Usage) -> None:
 def build_bundle(
     generation: Generation, *, adapters: list[LanguageAdapter]
 ) -> PreparedInput:
-    """Turn the stored input into a bundle and choose its adapter.
-
-    A paste has no filename, so with auto-detection each adapter is offered
-    the text under its own default file extension and the best sniff wins.
-    A zip is read in memory under the `SOURCES_ZIP_*` limits, then filtered
-    to the files the chosen adapter reads.
+    """Turn the generation's stored input into a bundle and choose its adapter.
 
     Raises:
         InputError: The input is unreadable, too large, or its language is unknown.
     """
-    data = bytes(generation.input_blob)
-    requested = (
-        get_adapter(name=generation.language, adapters=adapters)
-        if generation.language
-        else None
+    raw = RawInput(
+        origin=InputOrigin(generation.input_origin).value,
+        data=bytes(generation.input_blob),
+        filename=generation.input_filename,
+        language=generation.language,
+        entry=generation.input_entry,
     )
-
-    if generation.input_origin == InputOrigin.PASTE:
-        candidates = [requested] if requested else adapters
-        best: tuple[float, SourceBundle, LanguageAdapter] | None = None
-        for adapter in candidates:
-            bundle = single_file_bundle(
-                filename=f"input{adapter.file_extensions[0]}", data=data, origin="paste"
-            )
-            score = adapter.sniff(bundle)
-            if best is None or score > best[0]:
-                best = (score, bundle, adapter)
-        if best is None or (requested is None and best[0] == 0.0):
-            raise InputError(
-                path="",
-                line=None,
-                message="Could not detect the input language; choose one explicitly.",
-            )
-        return PreparedInput(
-            bundle=best[1], adapter=best[2], manifest=manifest_for(best[1])
-        )
-
-    if generation.input_origin == InputOrigin.ZIP:
-        contents = read_zip(data, limits=_archive_limits())
-        everything = SourceBundle(
-            files=contents.files, origin="zip", entry=generation.input_entry or None
-        )
-        adapter = requested or detect(bundle=everything, adapters=adapters)
-        bundle, filtered_out = select_files(everything, adapter)
-        skipped = sorted(
-            [*contents.skipped, *filtered_out], key=lambda entry: entry.path
-        )
-        manifest = FileManifest(
-            included=[file.path for file in bundle.files], skipped=skipped
-        )
-        return PreparedInput(bundle=bundle, adapter=adapter, manifest=manifest)
-
-    bundle = single_file_bundle(
-        filename=generation.input_filename, data=data, origin="file"
-    )
-    adapter = requested or detect(bundle=bundle, adapters=adapters)
-    return PreparedInput(bundle=bundle, adapter=adapter, manifest=manifest_for(bundle))
-
-
-def _archive_limits() -> ArchiveLimits:
-    return ArchiveLimits(
-        max_uncompressed_bytes=settings.SOURCES_ZIP_MAX_UNCOMPRESSED_BYTES,
-        max_file_bytes=settings.SOURCES_ZIP_MAX_FILE_BYTES,
-        max_entries=settings.SOURCES_ZIP_MAX_ENTRIES,
-    )
+    return prepare_input(raw, adapters=adapters, limits=archive_limits())
 
 
 def _set_stage(generation: Generation, stage: GenerationStage) -> None:

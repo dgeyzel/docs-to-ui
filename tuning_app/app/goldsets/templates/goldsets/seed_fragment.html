@@ -1,0 +1,10 @@
+<p
+    class="connection-test"
+    id="seed-status"
+    hx-get="{{ url('goldsets:example_seed', id=example.gold_set.id, example_id=example.id) }}"
+    hx-trigger="every 2s"
+    hx-swap="outerHTML"
+>
+    <span class="status-pill status-running">{{ example.seed_status }}</span>
+    <span class="hint">A model is filling in the expected page. This page reloads when it's done.</span>
+</p>

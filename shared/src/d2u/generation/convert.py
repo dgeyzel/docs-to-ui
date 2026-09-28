@@ -16,7 +16,7 @@ from d2u.schemas.docpage import (
     Param,
     SourceLocation,
 )
-from d2u.schemas.generated import GeneratedOperation, GeneratedPage
+from d2u.schemas.generated import GeneratedOperation, GeneratedPage, GeneratedParam
 
 _SLASHES = re.compile(r"/{2,}")
 
@@ -178,3 +178,67 @@ def merge_parts(parts: list[GeneratedPage]) -> tuple[GeneratedPage, list[str]]:
         title=first.title, overview_md=first.overview_md, operations=operations
     )
     return merged, duplicates
+
+
+_ID_SUFFIX = re.compile(r"~\d+$")
+
+
+def _split_http_id(op_id: str) -> tuple[str | None, str | None]:
+    method, _, path = _ID_SUFFIX.sub("", op_id).partition(" ")
+    return (method, path) if path.startswith("/") else (None, None)
+
+
+def docpage_to_generated(page: DocPage) -> GeneratedPage:
+    """The inverse of `generated_to_docpage`, for editing a stored page.
+
+    HTTP operations get their method and path back from their ID, and Python
+    operations their qualified name. Prose comes from the page's docs, or the
+    source descriptions for operations without docs. Converting the result
+    back derives the same IDs.
+    """
+    docs = {entry.operation_id: entry for entry in page.operations}
+    group_of = {
+        op_id: group
+        for group, op_ids in page.overview.groups.items()
+        for op_id in op_ids
+    }
+    operations: list[GeneratedOperation] = []
+    for op in page.surface.operations:
+        entry = docs.get(op.id)
+        descriptions = entry.param_descriptions if entry else {}
+        method, path = _split_http_id(op.id) if op.kind == "http" else (None, None)
+        summary = entry.summary if entry else (op.source_description or "")
+        operations.append(
+            GeneratedOperation(
+                kind=op.kind,
+                method=method,
+                path=path,
+                qualified_name=None if op.kind == "http" else _ID_SUFFIX.sub("", op.id),
+                signature=op.signature,
+                group=group_of.get(op.id, op.group_hint),
+                summary=summary.split("\n", 1)[0][:200],
+                description_md=entry.description_md if entry else "",
+                params=[
+                    GeneratedParam(
+                        name=param.name,
+                        location=param.location,
+                        type=param.type,
+                        required=param.required,
+                        default=param.default,
+                        description=descriptions.get(
+                            param.id, param.source_description or ""
+                        ),
+                    )
+                    for param in op.params
+                ],
+                returns=op.returns,
+                examples=list(entry.examples) if entry else [],
+                source_path=op.location.path if op.location else None,
+                source_line=op.location.line if op.location else None,
+            )
+        )
+    return GeneratedPage(
+        title=page.surface.title,
+        overview_md=page.overview.overview_md,
+        operations=operations,
+    )
