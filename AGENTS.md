@@ -39,20 +39,35 @@ This project runs on **Linux only**. Plain does not support native Windows. The 
 
 All commands below run in the WSL (Ubuntu) shell, from the repository root.
 
+The repository is a uv workspace (spec §15) with three members:
+
+| Member | What it is |
+|---|---|
+| `shared/` | The `d2u` library |
+| `docs_app/` | The Docs app, a Plain project |
+| `tuning_app/` | The Tuning app, a Plain project |
+
+Plain resolves its app as `./app`, so app commands run inside a project directory, through `--directory`.
+
 | Task | Command |
 |---|---|
-| Install dependencies | `uv sync` |
-| Add a runtime dependency | `uv add <pkg>` |
-| Add a dev-only dependency | `uv add --group dev <pkg>` |
-| Run the app (web + worker, loads `.env`) | `uv run plain dev` |
+| Install dependencies (all members) | `uv sync --all-packages` |
+| Add a dependency to one member | `uv add --package <d2u\|docs\|tuning> <pkg>` |
+| Add a dev-only dependency | `uv add --group dev <pkg>` (workspace root) |
+| Run the Docs app (web + worker, loads `docs_app/.env`) | `uv run --directory docs_app plain dev` |
+| Run the Tuning app (web + worker, loads `tuning_app/.env`) | `uv run --directory tuning_app plain dev` |
+| Create a local package in an app | `uv run --directory <app dir> plain create <name>` |
+| Schema changes (either app; shared migrations are identical) | `uv run --directory docs_app plain postgres sync` |
 | Auto-fix lint and format | `uv run plain fix` |
 | Lint, format, and type check without changing files | `uv run plain code check` |
 | Unit + integration tests (the default suite) | `uv run pytest` |
 | E2E tests | `uv run pytest -m e2e` |
 | Full containerized suite (same as CI) | `docker compose -f docker-compose.test.yml up --abort-on-container-exit` |
-| Framework docs for a package | `uv run plain docs <package>` (e.g. `plain docs jobs`) |
-| Sync Plain's own agent rules | `uv run plain agent install` (writes to `.claude/rules/` and `.claude/skills/`) |
+| Framework docs for a package | `uv run --directory docs_app plain docs <package>` (e.g. `plain docs jobs`) |
+| Sync Plain's own agent rules | `uv run --directory docs_app plain agent install` (writes to `.claude/rules/` and `.claude/skills/`) |
 | Sync design tokens | `uv run python scripts/sync_design.py` |
+
+If a root-level command (`plain fix`, `plain code check`, `pytest`) doesn't behave as listed once the workspace exists, milestone R1 fixes the command and updates this table.
 
 **Dependency rules**
 - Never use `pip`.
@@ -78,36 +93,44 @@ All commands below run in the WSL (Ubuntu) shell, from the repository root.
 
 These come from `SPEC.md` and are easy to break by accident.
 
-- **The LLM never produces markup.** LLM outputs are Pydantic models (`app/llm/schemas.py`). Rendering happens only in templates and elements.
-- **`app/llm/` never imports `plain`.** It receives configuration as arguments, so `dspy_pipeline/` can use it without booting the app.
-- **Schemas and DSPy signatures are defined once, in `app/llm/`.**
-  - Do not redefine them elsewhere, including in `dspy_pipeline/`.
-  - Use `dspy.Predict` / `dspy.ChainOfThought` with Pydantic-typed fields. **Never** use `TypedPredictor`.
-- **No sampling parameters for Gemini.** Do not pass `temperature`, `top_p`, or `top_k`. Use `thinking_level`.
+- **The LLM never produces markup.** Every LLM output is a Pydantic model from `d2u.schemas`, requested through structured output and validated with `model_validate`. Rendering happens only in templates and elements.
+- **Plain-free shared code.** `d2u.schemas`, `d2u.sources` and `d2u.generation` never import `plain`. They receive configuration as arguments, so both apps and plain tests can use them without booting an app.
+- **Contracts are defined once.** Pydantic schemas live only in `d2u.schemas`. Prompt messages are built only by `d2u.generation`. Do not redefine either in an app.
+- **Every LLM call goes through LiteLLM**, using model configuration from the registry (`ModelConfig`). No provider SDK is called directly for generation, evaluation or judging.
+- **DSPy lives only in the Tuning app.** `shared/` and `docs_app/` never import `dspy`, and a test enforces this for the Docs app. In the Tuning app, use `dspy.Predict` / `dspy.ChainOfThought` with Pydantic-typed fields; **never** use `TypedPredictor`.
+- **Evals run the production path.** Eval scores come from `d2u.generation`, never from DSPy's own adapter output (spec D13).
+- **Model parameters come from the registry.** Never hard-code call parameters. Gemini 3 models never receive `temperature`, `top_p` or `top_k`; use `reasoning_effort`.
+- **API keys are never stored.** `ModelConfig` names the environment variable that holds a key; the key never goes in the database, a template, a log or a span.
+- **IDs are derived in code** (spec §5), never taken from the LLM.
+- **Runtime settings change only in the Tuning app.** The active model, active prompt versions, default judge and trace backends are edited only there; the Docs app shows them read-only.
 - **Business code never imports a telemetry backend.**
-  - Views, jobs, and `app/llm` use OpenTelemetry APIs and `app/telemetry/api.py` only.
-  - Only `app/telemetry/` knows about `native` or `langfuse`.
-- **Doc pages use no HTMX.** HTMX is for the app shell and trace viewer. `doc.*` elements must work in a static exported file.
-- **Styles use tokens only.** CSS uses `var(--…)` semantic tokens only; no raw color literals. `app/assets/css/tokens.css` is generated. Never edit it by hand.
-- **Jobs are idempotent.** `GenerateDocJob.run()` must be safe to run twice (spec §9).
+  - Views, jobs and `d2u.generation` use OpenTelemetry APIs and `d2u.telemetry.api` only.
+  - Only `d2u.telemetry` knows about `native` or `langfuse`.
+- **Doc pages use no HTMX.** HTMX is for the app shells and the trace viewer. `doc.*` elements must work in a static exported file.
+- **Styles use tokens only.** CSS uses `var(--…)` semantic tokens only, with no raw color literals. `shared/src/d2u/ui/assets/css/tokens.css` is generated; never edit it by hand.
+- **Jobs are idempotent.** `GenerateDocJob`, `EvalRunJob` and `OptimizationRunJob` must be safe to run twice.
 
 ## 4. Plain Conventions
 
-- **Package layout.** Code lives in local packages under `app/<package>/`, created with `uv run plain create <name>` and listed in `INSTALLED_PACKAGES`. No generic `core`, `utils`, or `common` packages.
+- **Package layout.**
+  - App-specific code lives in local packages under `<app dir>/app/<package>/`, created with `uv run --directory <app dir> plain create <name>` and listed in that app's `INSTALLED_PACKAGES`.
+  - Code or tables both apps need live in `shared/src/d2u/<package>/`. Shared Plain packages are listed in both apps' `INSTALLED_PACKAGES`.
+  - Tuning app routes all live under `/tuning/`.
+  - No generic `core`, `utils` or `common` packages.
 - **Settings.**
   - Settings live in each package's `default_settings.py` and are prefixed with the package name (`GENERATIONS_…`, `SOURCES_…`).
   - Every setting has a type annotation. Required settings have no default.
-  - Read settings with `from plain.runtime import settings`, never `os.environ`, except inside `app/settings.py`.
+  - Read settings with `from plain.runtime import settings`, never `os.environ`, except inside an app's `app/settings.py`. The one other exception is resolving a provider key named by `ModelConfig.api_key_env`, which happens only in `d2u.generation`'s LiteLLM client.
   - Mark sensitive settings with `plain.runtime.Secret[str]` so they are masked in output.
 - **Environment variables and `.env`.**
-  - Plain reads `PLAIN_`-prefixed environment variables. `plain dev` loads `.env` in development.
+  - Plain reads `PLAIN_`-prefixed environment variables. `plain dev` loads the `.env` in the app's directory (`docs_app/.env`, `tuning_app/.env`); each app has its own `.env.example`.
   - Docker and CI inject real environment variables.
   - **MUST NOT** call `load_dotenv()` or add `python-dotenv`.
   - Standalone scripts that need env vars run as `uv run --env-file .env python …`.
 - **Models** use `plain.postgres`. Change the schema only through its workflow (see `uv run plain docs postgres`).
 - **Background work** goes in `jobs.py` as `plain.jobs` `Job` subclasses. Never use threads for request-triggered work.
 - **Templates and elements**
-  - Elements live in `templates/elements/`, one component per file, following the namespaces in spec §11.2.
+  - Shared elements (`doc.*`, `traces.*`, app-shell components) live in `d2u.ui`'s `templates/elements/`; app-specific elements live in that app's `templates/elements/`. One component per file.
   - Keep logic out of templates. Compute values in views or in small helper functions.
 
 ## 5. Python Standards
@@ -124,14 +147,14 @@ These come from `SPEC.md` and are easy to break by accident.
 - Comments explain *why*. Code explains *what*.
 
 ### 5.2 Typing
-- **MUST** annotate every function signature in `app/`, `dspy_pipeline/`, and `scripts/`.
+- **MUST** annotate every function signature in `shared/`, `docs_app/`, `tuning_app/` and `scripts/`.
 - Use built-in generics and unions: `list[str]`, `dict[str, int]`, `X | None`.
-- Use `typing.Protocol` for pluggable interfaces (`LanguageAdapter`, `TraceBackend`).
+- Use `typing.Protocol` for pluggable interfaces (`LanguageAdapter`, `TraceBackend`, generation strategies).
 - Use `enum.StrEnum` for closed sets of values: statuses, error codes, stages.
 - `Any` requires a comment explaining why. `# type: ignore` requires the specific error code and a reason.
 
 ### 5.3 Data modeling
-- Use **Pydantic v2** for anything that crosses a boundary: LLM input and output, stored JSON (`doc_json`, `input_manifest`), and external data.
+- Use **Pydantic v2** for anything that crosses a boundary: LLM input and output, stored JSON (`doc_json`, `input_manifest`, gold examples, prompt examples, model params), and external data.
   - Use `model_validate()` / `model_dump()`.
   - Use `ConfigDict(frozen=True)` for value objects.
 - For purely internal structures, use `@dataclass(frozen=True, slots=True)`.
@@ -141,13 +164,13 @@ These come from `SPEC.md` and are easy to break by accident.
 ### 5.4 Strings, paths, time, resources
 - Prefer f-strings, **except in logging calls** (§5.5).
 - Use `pathlib.Path` for filesystem paths.
-  - Paths *inside a zip bundle* are strings normalized to `/` separators, per spec §8.
+  - Paths *inside a zip bundle* are strings normalized to `/` separators, per spec §10.
   - Never turn a bundle path into a real filesystem path.
 - Datetimes are timezone-aware UTC: `datetime.now(UTC)`. Never use naive datetimes.
 - Use `with` for files, database connections, HTTP clients, and zip archives.
 
 ### 5.5 Logging
-- Use `logger = logging.getLogger(__name__)` at module level. **Never** use `print()` in `app/`.
+- Use `logger = logging.getLogger(__name__)` at module level. **Never** use `print()` in `shared/`, `docs_app/` or `tuning_app/`.
 - Use lazy formatting, `logger.info("Generation %s finished", generation_id)`, not f-strings. The message is only built if the log level is enabled, and log aggregation sees stable message templates.
 - Use `logger.exception(...)` inside `except` blocks so the traceback is kept.
 - Logs are for operators. Record per-generation diagnostic data as span attributes or events instead.
@@ -163,9 +186,11 @@ These come from `SPEC.md` and are easy to break by accident.
 
   | Boundary | Why it may catch broadly |
   |---|---|
-  | `GenerateDocJob.run()` top level | Converts any failure into `status="failed"` with an error code, then re-raises only if the spec requires it |
-  | Per-batch LLM calls in the generator | A failed batch must not abort the whole generation (spec §6.1) |
-  | `PostgresSpanExporter.export()` | Telemetry must never affect a generation (spec §10.3) |
+  | `GenerateDocJob.run()`, `EvalRunJob.run()`, `OptimizationRunJob.run()` top level | Converts any failure into a failed status with an error code (`internal_error` for unexpected ones) |
+  | Per-batch LLM calls of the `hybrid` strategy | A failed batch must not abort the whole generation (spec §6.3) |
+  | Per-example work in `EvalRunJob` | One failing example must not abort an eval run; it scores zero and records the error |
+  | Model **Test connection** | Any provider error is the result to show the user |
+  | `PostgresSpanExporter.export()` and the trace routing processor | Telemetry must never affect a generation or a run (spec §11) |
   | `TraceBackend.record_feedback()` implementations | Same reason |
 
   Any other broad catch needs explicit approval.
@@ -173,14 +198,15 @@ These come from `SPEC.md` and are easy to break by accident.
 ## 7. Security
 
 - **Secrets**
-  - Never commit `.env`. `.gitignore` must include `.env`, `.plain/`, and `artifacts/**/*.tmp`.
+  - Never commit `.env` files. `.gitignore` must cover every app's `.env` and `.plain/`.
   - Never log, print, or raise with secrets or credentials in the message.
   - **Never put secrets in span attributes.** Traces store prompts and inputs, and may be sent to Langfuse.
+  - **Never store API keys in the database.** The model registry stores only the name of the environment variable that holds a key.
   - Commit `.env.example` with every variable, using placeholder values.
 - **User input is untrusted.** This covers uploaded code, zip archives, OpenAPI documents, and LLM output.
   - **MUST NOT** `exec`, `eval`, `compile`, `import`, or `pickle` user-supplied content. Python input is analyzed with `ast.parse` only.
   - YAML: `yaml.safe_load` only.
-  - Zip files: follow spec §8 exactly.
+  - Zip files: follow spec §10 exactly.
     - Read in memory and never extract to disk.
     - Count bytes as they are read.
     - Reject absolute paths, `..`, and symlinks.
@@ -196,12 +222,13 @@ These come from `SPEC.md` and are easy to break by accident.
 ```
 tests/
 ├── conftest.py
-├── fixtures/{openapi,python,zips}/     # input files + DummyLM responses
-├── unit/<mirror of app/>               # e.g. tests/unit/sources/adapters/test_python.py
-├── integration/                        # real Postgres, DummyLM, jobs, exporter
-└── e2e/                                # Playwright; marked @pytest.mark.e2e
+├── fixtures/                           # input files, fake-model responses, adapter contracts
+├── shared/<mirror of d2u/>             # e.g. tests/shared/sources/adapters/test_python.py
+├── docs_app/{unit,integration}/        # real Postgres, fake model, jobs
+├── tuning_app/{unit,integration}/      # metrics, gold sets, eval and optimization jobs
+└── e2e/                                # Playwright, both apps; marked @pytest.mark.e2e
 ```
-Unit tests mirror the `app/` structure. Integration and E2E tests are grouped by feature.
+Unit tests mirror the package structure. Integration and E2E tests are grouped by feature.
 
 ### 8.2 Running
 - `uv run pytest` runs unit and integration tests. E2E tests are excluded by default and run with `-m e2e`.
@@ -209,9 +236,9 @@ Unit tests mirror the `app/` structure. Integration and E2E tests are grouped by
 - Use Plain's `plain.pytest` fixtures for the database and settings. Don't create your own database setup.
 
 ### 8.3 No real LLMs, no internet
-- Tests **MUST** use `LLM_MODEL=fake`, which uses DSPy's `DummyLM` with fixtures from `tests/fixtures/`.
+- Tests **MUST** use the fake model (`litellm_model = "fake"`), which answers from fixtures in `tests/fixtures/`. DSPy code in the Tuning app is tested with `DummyLM`.
 - Tests **MUST NOT** reach the internet. Enforce this with `pytest-socket`, allowing only the database host.
-- Real-model evaluation lives in `dspy_pipeline/` and runs only through `evals.yml`.
+- Real-model evaluation runs only when the user starts it: from the Tuning app's UI, or through `evals.yml`.
 
 ### 8.4 Style
 - Tests are plain `pytest` functions. No `unittest.TestCase`.
@@ -228,7 +255,7 @@ Unit tests mirror the `app/` structure. Integration and E2E tests are grouped by
 
 ### 8.5 What to test
 - Every new module gets tests in the same change.
-- Each spec contract gets a test: every `LanguageAdapter` goes through the adapter contract suite, and every zip limit, every job state transition, and every telemetry backend is covered.
+- Each spec contract gets a test: every `LanguageAdapter` goes through the adapter contract suite, and every zip limit, every job state transition, every strategy, every metric and every telemetry backend is covered.
 - **MUST NOT** delete, skip, `xfail`, or weaken an existing test to make a change pass. If a test is wrong, say so and explain why.
 
 ### 8.6 Bugs
@@ -241,7 +268,7 @@ Every bug fix starts with a regression test that fails for the reported reason. 
 
 ## 9. Documentation
 
-- Public modules, classes, and functions in `app/`, `dspy_pipeline/`, and `scripts/` get **Google-style docstrings**.
+- Public modules, classes, and functions in `shared/`, `docs_app/`, `tuning_app/` and `scripts/` get **Google-style docstrings**.
   - Include `Args:`, `Returns:`, and `Raises:` where applicable.
   - Don't repeat type information already in the annotations.
 - Private helpers (`_name`) and tests don't need docstrings. A clear test name is the documentation.
@@ -255,6 +282,6 @@ A task is finished only when all of these are true. Report the result of each in
 - [ ] `uv run pytest` passes. Also run `-m e2e` if templates, elements, views, or JS changed. All runs happen in Linux/WSL (§0).
 - [ ] New or changed behavior has tests. Bug fixes have a regression test.
 - [ ] No architecture invariant (§3) or security rule (§7) is violated.
-- [ ] New settings appear in `default_settings.py`, `.env.example`, and the configuration table in `SPEC.md`.
+- [ ] New settings appear in `default_settings.py`, the relevant app's `.env.example`, and the configuration table in `SPEC.md`.
 - [ ] No stray files, debug prints, commented-out code, or unrelated changes.
 - [ ] The summary lists what changed, what was tested, and any deviation from the spec or from this file.

@@ -1,667 +1,582 @@
-# Docs-to-UI: Architecture & Implementation Spec (v6)
+# Docs-to-UI: Architecture & Implementation Spec (v7)
 
-> **Status:** Draft. **[Decided]** marks settled decisions; **[Default]** marks proposed defaults that stand unless changed. Unresolved items are in §17.
+> **Status:** Accepted for implementation (branch `redesign/v7`). **[Decided]** marks settled decisions; **[Default]** marks proposed defaults that stand unless changed. §19 records the questions resolved in review.
+>
+> v7 replaces v6's single app, where DSPy ran inside the web app. The web app now calls the LLM directly, and a second app does evaluation and tuning with DSPy. What changed from v6 is summarized in §21.
 
 ---
 
 ## 1. Overview
 
-**Docs-to-UI** is a single-user, local developer tool. It accepts an OpenAPI document or Python source code, as a single file, pasted text, or a `.zip` archive. It produces an interactive, styled documentation page that can be viewed in the app or exported as a standalone HTML file.
+**Docs-to-UI** is a single-user, local developer tool made of two Plain apps that share one Postgres database.
 
-| Part | Role | When it runs |
+| App | Role | Uses DSPy? |
 |---|---|---|
-| **Web app** (Plain Framework) | Accepts input; runs generation jobs; renders, stores and exports doc pages; hosts the native trace viewer | Always (web process + job worker) |
-| **Generation program** (DSPy + Gemini) | Writes structured documentation content for an API surface | Inside the job worker |
-| **Optimization pipeline** (DSPy) | Tunes the generation program against a dataset and metric; emits a versioned program artifact | Offline, on demand |
-| **Design system** ([OpenDesign](https://github.com/nexu-io/open-design)) | Defines the semantic CSS tokens every page uses | Design time |
+| **Docs app** (`docs_app/`) | Accepts an OpenAPI document or Python source (a file, pasted text or a `.zip`), sends it to an LLM in one direct call, and renders the resulting documentation page. The page can be viewed in the app or exported as standalone HTML. | No |
+| **Tuning app** (`tuning_app/`) | Evaluates and tunes the Docs app. Manages models, gold-set datasets, eval runs and DSPy optimization runs through a web UI, and promotes tuned prompts and models to the Docs app. | Yes |
+
+Both apps share:
+- the Pydantic contracts
+- the source parsers
+- the generation code
+- the design system and its elements
+- tracing and the trace viewer
+
+This shared code lives in one library, `d2u`, so the Tuning app evaluates exactly the code path the Docs app runs in production.
+
+> **Future option.** The two apps may later merge into one app with a "Tuning" section. The shared library and shared database are designed so that change is mostly a matter of routing and packaging. See §19.
 
 **Tooling**
 
 | Tool | Used for |
 |---|---|
-| `uv` | Dependencies |
-| `ruff` | Lint and format (via Plain's tooling) |
-| Pydantic | All structured data |
-| Postgres | Persistence, job queue, native trace store |
-| OpenTelemetry | Tracing |
+| `uv` (workspace) | Dependencies for the shared library and both apps |
+| LiteLLM | Every LLM call, for any provider (Gemini, Claude, and others) |
+| DSPy | Prompt optimization, in the Tuning app only |
+| Pydantic | All structured data, including every LLM output |
+| Postgres | Persistence, job queues, native trace store (shared by both apps) |
+| OpenTelemetry | Tracing, to the native store and/or Langfuse, selectable in the UI |
 | pytest, Playwright | Tests |
 | GitHub Actions, Docker | CI |
-
-Plain Framework conventions are followed wherever they apply (§14).
 
 ## 2. Goals and Non-Goals
 
 **Goals**
-- Turn an OpenAPI document or a Python codebase into a readable, navigable doc page.
-- Make output quality measurable, and improvable through offline optimization.
-- Trace every generation end to end — request → job → each LLM call — and view those traces either in the app or in Langfuse.
-- Capture user feedback on generated pages as data the optimization pipeline can use.
-- Keep adding a new source language a contained task (§7).
+- Turn an OpenAPI document or a Python codebase into a readable, navigable doc page with one direct LLM call.
+- Let the user choose the Docs app's model and add new models without code changes.
+- Make output quality measurable, and at a minimum measure faithfulness and component accuracy against curated gold sets.
+- Improve prompts offline with DSPy, compare them in a UI, and promote the best version to the Docs app.
+- Keep deterministic parsing as a comparison baseline and a possible future generation strategy.
+- Trace every generation and eval end to end, viewable in the app or in Langfuse. The user picks which.
+- Capture user feedback as data for gold-set curation.
 
 **Non-goals**
-- Multi-user support, authentication, or sharing. The app binds to `127.0.0.1` only.
+- Multi-user support, authentication or sharing. Both apps bind to `127.0.0.1` only (the production container exception is in `AGENTS.md` §0).
 - Hosting generated docs. Export produces a file; hosting is the user's choice.
 - Executing or importing the user's code. Python is parsed with `ast`; archives are read in memory and never extracted to disk.
-- LLM-produced HTML, CSS, or JS.
-- Managing prompts outside DSPy. Prompts are compiled program artifacts, not rows in a prompt registry.
-- Mixed-language inputs. A generation uses exactly one adapter. A zip containing both Python code and an OpenAPI spec is documented with whichever adapter is detected or chosen, and the other files are listed as skipped in the manifest.
+- LLM-produced HTML, CSS or JS. The LLM returns Pydantic types; templates render them.
+- DSPy in the Docs app. Tuned prompts reach the Docs app as plain text and example pairs, not as DSPy programs.
+- Mixed-language inputs. A generation documents one language; other files are listed as skipped.
 
 ## 3. Key Decisions
 
 | # | Decision | Status |
 |---|---|---|
-| D1 | The LLM produces **structured data** (Pydantic models), never markup. Templates and elements render everything. | **[Decided]** |
-| D2 | Generation runs as a **background job** (`plain.jobs`); the UI polls job status over HTMX. | **[Decided]** |
-| D3 | Structure is extracted **deterministically** wherever a parser exists: OpenAPI via a spec parser, Python via `ast`. The LLM writes descriptive content only. LLM extraction is a fallback for future languages without a parser. | **[Decided]** |
-| D4 | Source languages plug in through a **`LanguageAdapter` registry**. v1 ships `openapi` and `python`. | **[Decided]** |
-| D5 | Styling uses **CSS custom properties only**, taken from the OpenDesign package's `tokens.css`. No Tailwind. | **[Decided]** |
-| D6 | **All instrumentation is OpenTelemetry.** Where traces go is a pluggable **`TraceBackend`**: `native` (Postgres + in-app viewer), `langfuse`, or both. Business code never imports a backend. | **[Decided]** |
-| D7 | The default LLM is **Gemini 3.8 Flash** (`gemini/gemini-3.8-flash`), configurable by setting. | **[Decided]** (may change) |
-| D8 | Maximum upload is **5 MB**. Large inputs are enriched in batches. | **[Decided]** |
-| D9 | Every generated page can be **exported** as standalone HTML and as its JSON `DocPage`. | **[Decided]** |
-| D10 | Layout follows **Plain conventions**: `app/settings.py`, `app/urls.py`, local packages under `app/<pkg>/`, elements in `templates/elements/`, settings overridable via `PLAIN_`-prefixed env vars. | **[Decided]** |
-| D11 | **`.zip` archives are accepted.** Every input becomes a `SourceBundle` of one or more files; adapters only ever see bundles. | **[Decided]** |
-| D12 | **Feedback is product data.** It is always stored natively and mirrored to Langfuse when that backend is active. | **[Default]** |
-| D13 | DSPy signatures and Pydantic schemas are defined **once**, in `app/llm/`, which is importable without Plain. The optimization pipeline imports it. | **[Default]** |
-| D14 | The optimized program is a **versioned file artifact** that the app loads at startup. | **[Default]** |
-| D15 | Tests never call a real LLM. Evals, which do, are a separate, manually triggered workflow. | **[Default]** |
+| D1 | Every LLM output is a **Pydantic model**, requested through the provider's structured-output support and validated with `model_validate`. Templates render it. The LLM never produces markup. | **[Decided]** |
+| D2 | Generation runs as a **background job** (`plain.jobs`); the UI polls over HTMX. Evals and optimization runs are background jobs in the Tuning app. | **[Decided]** |
+| D3 | The Docs app's default strategy is **`llm`**: the LLM reads the source and produces the page's full content, structure included. The deterministic parsers are kept for the **`parser`** and **`hybrid`** strategies (§6.3), used as eval comparisons and as a possible future option. | **[Decided]** |
+| D4 | Operation and parameter **IDs are derived in code** from what the LLM returns (method and path, or qualified name), never invented by the LLM. | **[Decided]** |
+| D5 | Styling uses **CSS custom properties only**, from the OpenDesign `tokens.css`. No Tailwind. | **[Decided]** |
+| D6 | **All instrumentation is OpenTelemetry.** The trace destination (native, Langfuse, both or none) is **chosen by the user in the UI** and takes effect without a restart (§11). | **[Decided]** |
+| D7 | **Every LLM call goes through LiteLLM.** Models are rows in a shared **model registry** managed in the Tuning app's UI (§7). | **[Decided]** |
+| D8 | Maximum input is **1 MB** (compressed upload or pasted text). Inputs too large for one call are split and merged (§6.4). | **[Decided]** |
+| D9 | Every generated page can be **exported** as standalone HTML and as its `DocPage` JSON. | **[Decided]** |
+| D10 | **Two Plain apps share one database.** Shared code and shared tables live in the `d2u` library (§15). | **[Decided]** |
+| D11 | `.zip` archives are accepted. Every input becomes a `SourceBundle`. | **[Decided]** |
+| D12 | **Tuned prompts are data.** A `PromptVersion` (instructions plus few-shot examples) is produced in the Tuning app and rendered by the Docs app into a direct LiteLLM call. Promotion is a button in the Tuning app. | **[Decided]** |
+| D13 | **Evals always run the production code path** (`d2u.generation`). DSPy only searches for better instructions and examples; every reported score comes from the production path. | **[Decided]** |
+| D14 | **Faithfulness and component accuracy** are required metrics, measured against **gold sets** curated in the Tuning app's UI (§9). | **[Decided]** |
+| D15 | Tests never call a real LLM. Real-model evals run only when the user starts them. | **[Default]** |
+| D16 | The eval **judge model** is chosen per run and should differ from the generation model. The seeded default judge is a Claude model, a different provider from the seeded Gemini generation model. The UI warns when judge and generation model are the same. | **[Decided]** |
+| D17 | API keys are **never stored in the database**. A registered model names the environment variable that holds its key. | **[Default]** |
 
 ## 4. End-to-End Flow
 
 ```mermaid
 flowchart LR
-    U[Upload file / zip<br/>or paste] --> V[POST /generations]
-    V --> G[(Generation<br/>status=pending)]
-    V --> J[[GenerateDocJob]]
-    V --> P[Status fragment<br/>polls every 2s]
-    J --> SB[Build SourceBundle<br/>safe zip read]
-    SB --> A[Adapter detect]
-    A --> X[adapter.extract → ApiSurface]
-    X --> B[Batch]
-    B --> E[LLM: EnrichOperations<br/>per batch]
-    E --> OV[LLM: WriteOverview]
-    OV --> M[Merge → DocPage]
-    M --> OK[(succeeded)]
-    OK --> R[Doc page + export + feedback]
-    J -. OTel spans .-> TB{{TraceBackends}}
-    TB --> N[(native: trace_spans)]
-    TB --> L[Langfuse OTLP]
+    subgraph Docs app
+      U[Upload / paste] --> V[POST /generations]
+      V --> G[(Generation pending)]
+      V --> J[[GenerateDocJob]]
+      J --> SB[SourceBundle]
+      SB --> P[Render active PromptVersion]
+      P --> L[LiteLLM call → GeneratedPage]
+      L --> ID[Derive IDs, validate, merge]
+      ID --> DP[(DocPage stored)]
+      DP --> R[Page, export, feedback]
+    end
+    subgraph Tuning app
+      M[Model registry] --> E[[EvalRunJob]]
+      GS[Gold sets] --> E
+      E --> SC[Scores and comparisons]
+      GS --> O[[OptimizationRunJob]]
+      O --> PV[PromptVersion candidate]
+      PV --> E
+      PV -->|Promote| ACT[(Active prompt and model)]
+    end
+    ACT --> P
+    M --> L
+    R -->|feedback| GS
 ```
 
-**Stages**
-
-1. **Ingest.** The view accepts a file, a `.zip`, or pasted text of at most 5 MB. It stores the raw bytes on a new `Generation`, enqueues the job, and returns the status fragment.
-2. **Bundle.** The job turns the stored input into a `SourceBundle` (§8). Archives are read in memory under strict safety limits. The bundle manifest — which files were included, and which were skipped and why — is saved to `Generation.input_manifest`.
-3. **Detect.** The adapter registry scores the bundle. The user can override the language in the form.
-4. **Extract.** The chosen adapter produces an `ApiSurface`: operations, parameters, types, existing docstrings and spec descriptions, and source locations. No LLM prose is involved.
-   - Invalid input fails with `input_error`, which carries the file path and line number.
-5. **Batch.** Operations are grouped — by tag or path prefix for OpenAPI, by module or class for Python — and packed into batches under a token budget (§6.4).
-6. **Enrich.** `EnrichOperations` runs once per batch. `WriteOverview` then runs once for the overview and the navigation groups.
-7. **Merge and validate.** Unknown IDs returned by the LLM are dropped and recorded as span events.
-8. **Persist, render, export, feedback.** The `DocPage` is stored on the `Generation`. The same templates render both the in-app page and the export. Feedback is attached to the generation and its trace.
+**Docs app stages**
+1. **Ingest.** Accept a file, `.zip` or pasted text of at most 1 MB. Store the raw bytes on a new `Generation`, enqueue the job and redirect to the generation page, which polls for status.
+2. **Bundle.** Build a `SourceBundle` under the zip safety rules (§10) and save the manifest.
+3. **Detect.** Choose the language: detected, or overridden in the form.
+4. **Generate.** Render the active `PromptVersion` for that language with the bundle's files. Call the chosen model through LiteLLM, requesting `GeneratedPage` as structured output. Split large inputs (§6.4).
+5. **Validate and derive.** Validate into Pydantic, derive IDs in code, drop source locations that don't exist in the bundle, and convert to a `DocPage`.
+6. **Persist, render, export, feedback.** As in v6.
 
 ## 5. Core Contracts
 
+All contracts live in `d2u.schemas` (Plain-free).
+
 ```python
-# app/llm/schemas.py  (sketch)
-from typing import Literal
-from pydantic import BaseModel, Field
-
-class SourceLocation(BaseModel):
-    path: str                        # path inside the bundle, e.g. "src/acme/client.py"
-    line: int
-
-class Param(BaseModel):
-    id: str                          # "GET /users/{id}#id" | "acme.client.Client.get#timeout"
+# d2u/schemas/generated.py — what the LLM returns (strategy "llm")
+class GeneratedParam(BaseModel):
     name: str
     location: Literal["path", "query", "header", "body", "arg", "kwarg"]
     type: str
     required: bool
     default: str | None = None
-    source_description: str | None = None
+    description: str
 
-class Operation(BaseModel):
-    id: str
+class GeneratedOperation(BaseModel):
     kind: Literal["http", "function", "class", "method"]
+    method: str | None = None          # HTTP only, e.g. "GET"
+    path: str | None = None            # HTTP only, e.g. "/pets/{id}"
+    qualified_name: str | None = None  # Python only, e.g. "acme.Client.get"
     signature: str
-    group_hint: str
-    params: list[Param]
-    returns: str | None = None
-    source_description: str | None = None
-    location: SourceLocation | None = None
-
-class ApiSurface(BaseModel):
-    title: str
-    language: str
-    operations: list[Operation]
-
-class Example(BaseModel):
-    title: str
-    language: str
-    code: str
-
-class OperationDocs(BaseModel):
-    operation_id: str
+    group: str
     summary: str = Field(max_length=200)
     description_md: str
-    param_descriptions: dict[str, str]
+    params: list[GeneratedParam]
+    returns: str | None = None
     examples: list[Example]
+    source_path: str | None = None
+    source_line: int | None = None
 
-class BatchEnrichment(BaseModel):
-    operations: list[OperationDocs]
-
-class Overview(BaseModel):
+class GeneratedPage(BaseModel):
+    title: str
     overview_md: str
-    groups: dict[str, list[str]]
+    operations: list[GeneratedOperation]
+```
 
+```python
+# d2u/schemas/docpage.py — what is stored and rendered (every strategy)
+# SourceLocation, Param, Operation, ApiSurface, Example, OperationDocs,
+# Overview are unchanged from v6. DocPage gains the strategy and prompt used.
 class DocPage(BaseModel):
-    schema_version: int = 1
+    schema_version: int = 2
+    strategy: Literal["llm", "hybrid", "parser"]
     surface: ApiSurface
     overview: Overview
     operations: list[OperationDocs]
 ```
 
 **Rules**
-- IDs are deterministic functions of the input.
-- `source_description` is passed to the LLM as context. The LLM may expand it but must not contradict it.
-- All LLM text is untrusted.
-  - Plain text is autoescaped.
-  - `*_md` fields are rendered, then sanitized with `nh3`.
-  - Example code is displayed, never run.
-- `schema_version` is bumped on any breaking change.
+- **IDs [Decided].** Operation IDs are `"{METHOD} {path}"` for HTTP and the qualified name for Python. Parameter IDs are `"{operation_id}#{name}"`. They are the same whether the structure came from the LLM or a parser, so gold sets, feedback and comparisons line up. Collisions get a deterministic suffix, and each one is recorded as a span event.
+- **Validation.** An LLM response that fails validation is retried once, with the validation error included in the retry. A second failure fails the generation with `validation_error`.
+- **Source locations.** A `source_path` that isn't in the bundle, or a `source_line` beyond the end of the file, is dropped rather than shown.
+- **Untrusted text.** Plain text is autoescaped, `*_md` fields are rendered then sanitized with `nh3`, and example code is displayed, never run.
+- **Storage [Default].** A `DocPage` is stored with `model_dump(mode="json")` in a JSONB column and always read back with `DocPage.model_validate`. Code only ever handles the Pydantic types.
+- `schema_version` is bumped on any breaking change. v6 pages (`schema_version` 1) are read with `strategy="hybrid"`.
 
-`SourceBundle` is an ingestion type. It lives in `app/sources/`, not in the LLM schemas.
+## 6. Generation (Docs app, `d2u.generation`)
 
-```python
-class SourceFile(BaseModel):
-    path: str                        # normalized, relative, "/"-separated
-    text: str
+`d2u.generation` is Plain-free. It receives configuration (model, prompt, limits) as arguments, so the Tuning app can call the same code.
 
-class SourceBundle(BaseModel):
-    files: list[SourceFile]
-    origin: Literal["paste", "file", "zip"]
-```
+### 6.1 The direct call
 
-## 6. LLM Layer
+- Messages are built from a `PromptVersion` (§8):
+  1. the system message holds its instructions;
+  2. each of its few-shot examples becomes a user message followed by an assistant message;
+  3. the final user message holds the bundle's files, each labeled with its path.
+- The call is `litellm.completion(model=…, messages=…, response_format=GeneratedPage, **params)`. `params` comes from the model's registry entry (§7).
+- The response is validated with `GeneratedPage.model_validate_json`.
+- Token counts, cost (from LiteLLM) and latency are recorded on the generation and on its span.
 
-### 6.1 Programs
+### 6.2 From `GeneratedPage` to `DocPage` (pure)
 
-| Program | Signature | Runs |
-|---|---|---|
-| `EnrichOperations` | `operations: list[Operation], api_title: str, language: str → result: BatchEnrichment` | Once per batch |
-| `WriteOverview` | `surface_outline: str, batch_summaries: list[str] → result: Overview` | Once per generation |
-| `ExtractApiSurface` | `source: str, language: str → surface: ApiSurface` | Only for adapters without a parser; unused in v1 |
+1. Derive operation and parameter IDs (§5), resolve collisions and drop invalid source locations.
+2. Build the `ApiSurface` from the structural fields: signature, parameters without descriptions, returns, location. Build the `OperationDocs` from the prose fields: summary, description, parameter descriptions, examples.
+3. Build the `Overview` from `overview_md`, with groups taken from each operation's `group`, in first-seen order.
 
-- Programs use `dspy.Predict` or `dspy.ChainOfThought` with Pydantic-typed `OutputField`s. The deprecated `TypedPredictor` is not used.
-- `app/llm/` has no Plain imports. Its configuration is passed in by the caller.
-- Each batch gets one validation retry.
-- **Partial failure:**
-  - If ≤ 10% of batches fail, the page renders; those operations show source descriptions with a "not enriched" marker.
-  - If more than 10% fail, the generation fails with `validation_error`.
+### 6.3 Strategies
 
-### 6.2 Model Configuration
+| Strategy | Structure from | Prose from | Where it's available |
+|---|---|---|---|
+| `llm` | LLM | LLM (the same call) | Docs app default; Tuning app evals |
+| `hybrid` | Deterministic parser (v6 adapters) | LLM, in one direct call per batch that returns `OperationDocs` for the given operations (no DSPy) | Tuning app evals; Docs app only when `GENERATIONS_ENABLE_HYBRID` is on |
+| `parser` | Deterministic parser | Source descriptions only (no LLM) | Tuning app evals, as the structural baseline |
 
-| Setting (env: `PLAIN_<NAME>`) | Default | Notes |
-|---|---|---|
-| `LLM_MODEL` | `gemini/gemini-3.8-flash` | LiteLLM string, as used by DSPy |
-| `LLM_THINKING_LEVEL` | `medium` | `low`, `medium`, or `high` |
-| `LLM_JUDGE_MODEL` | `gemini/gemini-3.8-flash` | Evals only |
-| `LLM_JUDGE_THINKING_LEVEL` | `high` | |
+The v6 OpenAPI and Python adapters, the adapter registry and the adapter contract suite are kept unchanged in `d2u.sources`.
 
-- Uses `GEMINI_API_KEY`.
-- Do not send `temperature`, `top_p`, or `top_k`; they are deprecated for current Gemini models.
-- Introductory pricing ends December 31, 2026. Revisit cost assumptions then.
-- `LLM_MODEL=fake` wires in `DummyLM` with fixture responses.
+### 6.4 Input size and splitting
 
-### 6.3 Program Artifacts
+- The input cap is **1 MB** (`GENERATIONS_MAX_INPUT_BYTES = 1048576`).
+- If the estimated prompt tokens are within the model's `max_input_tokens` (from the registry), the page is generated in **one call**.
+- Otherwise the bundle is split into parts that each fit, keeping files from the same directory together, and each part is generated in its own call (up to `GENERATIONS_MAX_CONCURRENCY` in parallel).
+  - Parts are merged in code: operations are unioned by derived ID (the first occurrence wins, and duplicates become span events), and groups keep their first-seen order.
+  - One further call writes the overview from all parts' summaries.
+  - If any part fails, the generation fails. Partial pages are not produced for the `llm` strategy.
 
-- Artifacts are written to `artifacts/programs/<program>/<version>.json`, next to a `.meta.json` recording the dataset hash, scores, model, thinking level, DSPy version, and date.
-- `LLM_PROGRAM_VERSION` (default `baseline`) selects the artifact to load.
-- Each `Generation` records `program_version` and `model`.
-- CI runs a save → load → run round-trip against `DummyLM`.
+### 6.5 Model and prompt selection [Decided]
 
-### 6.4 Batching
+- The Docs app always uses the **active model** and the **active prompt version** for the input's language. Both are chosen only in the Tuning app. The Docs app has no model picker; it shows the active model and prompt version read-only on the generation form.
+- The generation records the model, the prompt version and the strategy it used.
 
-| Setting | Default |
+### 6.6 Background job
+
+`GenerateDocJob` keeps v6's behavior:
+- It claims the generation with a single `pending → running` update, so it's idempotent.
+- It runs stage spans.
+- It checks the soft timeout between calls.
+- `on_aborted` records `worker_lost`.
+- Failures map to `input_error`, `validation_error`, `provider_error`, `timeout` and `worker_lost`, plus `internal_error`, which v7 adds for unexpected exceptions.
+
+## 7. Model Registry (shared, managed in the Tuning app)
+
+| Field | Meaning |
 |---|---|
-| `LLM_BATCH_TOKEN_BUDGET` | `60000` |
-| `LLM_BATCH_MAX_OPERATIONS` | `25` |
-| `LLM_MAX_CONCURRENCY` | `4` |
+| `name` | Display name, unique |
+| `litellm_model` | LiteLLM model string, e.g. `gemini/gemini-3.8-flash` or `anthropic/claude-sonnet-4-5` |
+| `api_key_env` | Name of the environment variable holding the key (e.g. `GEMINI_API_KEY`). The key itself is never stored (D17). |
+| `api_base` | Optional base URL (for proxies or local models) |
+| `params` | JSON object of call parameters, e.g. `{"reasoning_effort": "medium", "max_tokens": 32000}` |
+| `max_input_tokens` | Input budget used for splitting (§6.4) |
+| `enabled_for_generation`, `enabled_for_judging` | Which roles may use the model |
+| `notes` | Free text |
 
-- Groups are kept whole where possible; oversized groups are split in order.
-- Progress is written to `Generation.progress` as `{batches_done, batches_total}`.
+- **Adding a model** is a form in the Tuning app. It offers only the parameters LiteLLM reports as supported for that model (`litellm.get_supported_openai_params`). Gemini 3 models never offer `temperature`, `top_p` or `top_k`.
+- **Test connection** makes a minimal structured-output call and shows the result, latency and any error.
+- **Activate for the Docs app** sets the active generation model (stored in `RuntimeSettings`). Only the Tuning app can change it.
+- The fake model (`litellm_model = "fake"`) answers from fixture files, and is used only by tests.
+- A seed migration adds two models:
+  - `Gemini 3.8 Flash` (`gemini/gemini-3.8-flash`, reading `GEMINI_API_KEY`), the active generation model;
+  - `Claude Sonnet` (`anthropic/claude-sonnet-4-5`, reading `ANTHROPIC_API_KEY`), the default judge.
+  Both entries can be edited in the UI; the model strings are checked with **Test connection** when first used.
+- Costs are reported per generation and per run. There are no spending caps.
 
-## 7. Language Adapters
+## 8. Prompt Versions (shared)
 
-```python
-# app/sources/adapters/base.py
-class LanguageAdapter(Protocol):
-    name: str                                  # "python", "openapi"
-    display_name: str
-    file_extensions: tuple[str, ...]
-    default_excludes: tuple[str, ...]          # glob patterns skipped inside archives
-    example_languages: tuple[str, ...]
-
-    def includes(self, path: str) -> bool: ...            # file filter within a bundle
-    def sniff(self, bundle: SourceBundle) -> float: ...    # 0.0–1.0 confidence
-    def extract(self, bundle: SourceBundle) -> ApiSurface: ...   # raises InputError(path, line, msg)
-    def group_key(self, op: Operation) -> str: ...
-```
-
-- **Registry:** `app/sources/registry.py`. `SOURCES_ENABLED_ADAPTERS` defaults to `["openapi", "python"]`.
-- **Adding a language** means adding one adapter module, fixtures under `tests/fixtures/<name>/`, and a dataset folder under `dspy_pipeline/datasets/<name>/`.
-
-**`openapi` adapter**
-- Supports OpenAPI 3.0 and 3.1, in JSON or YAML.
-- **Entry file:** for a single file, that file. For a zip, the shallowest file with a top-level `openapi:` key. If several qualify, the user must choose one.
-- **`$ref`s:** relative refs resolve **within the bundle only**. Remote refs and refs that escape the bundle root are rejected.
-
-**`python` adapter**
-- Parses with `ast` only.
-- Includes `*.py`.
-- **Default excludes:** `**/tests/**`, `**/test_*.py`, `**/.venv/**`, `**/venv/**`, `**/__pycache__/**`, `**/build/**`, `**/dist/**`, `**/site-packages/**`.
-- **Module paths:**
-  1. Detect the package root: a `src/` layout if present; otherwise the shallowest directories containing `__init__.py`.
-  2. Derive module paths from the file's position under that root.
-  3. Directories without `__init__.py` under the root are treated as namespace packages.
-- **What is extracted:** public module-level functions and classes, their public methods, signatures, annotations, defaults, and docstrings.
-  - `__all__` is respected when present.
-  - Names beginning with `_` are skipped.
-  - Each operation records its `SourceLocation`.
-- **Re-exports** **[Decided]:** when a package's `__init__.py` re-exports a name and lists it in `__all__` (for example `acme.Client`, defined in `acme/client.py`), the operation is documented once, under its **public path** (`acme.Client`).
-  - Its `SourceLocation` still points to the definition site.
-  - It is not duplicated under `acme.client`.
-  - Re-exports not listed in `__all__` stay under their definition path.
-
-**Adapter contract suite:** a parametrized test runs every registered adapter against its fixtures. It checks ID stability, file filtering, grouping, and error locations.
-
-## 8. Input Handling and Zip Safety
-
-Every input is normalized to a `SourceBundle` before any adapter runs.
-
-| Origin | Bundle |
+| Field | Meaning |
 |---|---|
-| Paste | One file, `input.<ext>`; the extension comes from the language picker |
-| Single file | One file, keeping its filename |
-| `.zip` | Every member that passes the safety checks and the adapter's `includes()` |
+| `language` | `openapi` or `python` |
+| `strategy` | `llm` or `hybrid` |
+| `version` | Unique label per language and strategy, e.g. `baseline`, `v3` |
+| `instructions` | The system prompt text |
+| `examples` | A list of few-shot pairs `{input_files, output: GeneratedPage}`, validated by Pydantic |
+| `status` | `draft`, `candidate` or `active`. Exactly one is `active` per language and strategy. |
+| `source` | `manual`, `optimization:<run id>` or `imported` |
+| `scores` | The dev-set scores that justified promotion, copied from its eval run |
+| `created_at`, `promoted_at` | |
 
-**Zip rules** (`app/sources/archive.py`):
+- `baseline` versions are seeded from files in `d2u/prompts/`.
+- The Tuning app can create a version by hand (editing instructions and examples in the UI), by optimization (§9.4), or by importing a JSON file.
+- **Promote** makes a version active. The previous active version becomes a candidate. Every promotion is recorded, so a promotion can be rolled back with one click.
+
+## 9. Tuning App
+
+A Plain app with its own web server, job worker and UI. It shares the database, the design system and the trace viewer with the Docs app.
+
+All Tuning app routes live under `/tuning/` (for example `/tuning/evals/12`), and its trace viewer is at `/tuning/traces`. Nothing in the Docs app's route space is reused, so a later merge into one app needs no URL changes (§19).
+
+### 9.1 UI sections
+
+| Section | Contents |
+|---|---|
+| **Dashboard** | Active model and prompt versions, the latest eval scores per language, recent runs |
+| **Models** | Registry list, add, edit, test connection, activate for the Docs app, enable for judging |
+| **Prompts** | Versions per language and strategy, a diff between versions, edit a draft, promote, roll back |
+| **Gold sets** | Create, import, seed, edit, approve and split examples (§9.2) |
+| **Evals** | Configure and start eval runs; results, per-example detail and run comparison (§9.3) |
+| **Optimization** | Configure and start DSPy optimization runs; resulting candidates (§9.4) |
+| **Metrics** | Metric definitions and weights, editable, with history (§9.5) |
+| **Settings** | Trace backend selection (§11) and the default judge model. These are the only place runtime settings are changed. |
+| **Traces** | The shared trace viewer (§11.4) |
+
+### 9.2 Gold sets
+
+A **gold set** is a named collection of **gold examples** for one language.
+
+| Gold example field | Meaning |
+|---|---|
+| `input` | The source files as the app would receive them (origin, files, entry file) |
+| `expected` | The reference `DocPage` structure and prose, a Pydantic model edited in the UI |
+| `split` | `train`, `dev` or `test` |
+| `status` | `draft` or `approved`. Only approved examples are used by runs. |
+| `source` | `manual`, `parser_seed`, `generation:<id>` or `feedback:<id>` |
+| `notes` | Reviewer notes |
+
+**Creating examples**
+- Paste or upload source, then choose how to fill the expected page:
+  - start empty;
+  - **seed from the parser** (the `parser` strategy);
+  - **seed from a model** (the `llm` strategy with a chosen model).
+- **Import a Docs app generation** (its input and output) as a draft.
+- **Import from feedback.** 👎 feedback with a correction becomes a draft that keeps the correction as a note.
+
+**Curating examples**
+- A form editor for the expected page: operations, parameters, types, required flags, defaults, summaries, descriptions and examples. Every save is validated by Pydantic.
+- Review states, per-example history and bulk split assignment.
+- A gold set's content hash is recorded on every run that uses it.
+
+### 9.3 Eval runs
+
+An **eval run** takes:
+- a gold set and split
+- a strategy
+- a generation model
+- a prompt version (for `llm` and `hybrid`)
+- a judge model
+- the metric weights
+- a concurrency limit
+
+`EvalRunJob` then:
+1. runs the production path (`d2u.generation`) on every approved example;
+2. scores each output (§9.5);
+3. stores per-example outputs, component scores, tokens, cost and latency.
+
+**Results UI**
+- Run summary: the mean of every metric and component, with confidence intervals across examples, plus total cost and latency.
+- Per-example detail: the expected and generated pages side by side, with component-level differences highlighted (missing, invented and wrong fields), judge rationales and the trace link.
+- **Compare runs.** Choose two or more runs on the same gold set to see per-metric deltas, which examples got better or worse, and strategy comparisons (for example `llm` against `parser` on component accuracy).
+
+### 9.4 Optimization runs
+
+An **optimization run** takes:
+- a language
+- a base prompt version
+- a gold set, using its train split for search and its dev split for scoring
+- a task model and a judge model
+- an optimizer with its parameters
+
+| Optimizer | Editable parameters (defaults) |
+|---|---|
+| `BootstrapFewShot` | max bootstrapped demos (4), max labeled demos (4), max rounds (1), metric threshold (0.7) |
+| `BootstrapFewShotWithRandomSearch` | the above plus number of candidate programs (8) |
+| `MIPROv2` | auto level (light, medium or heavy), max bootstrapped and labeled demos, number of trials, minibatch size, seed |
+| `COPRO` | breadth (10), depth (3), initial temperature where the model supports it |
+
+`OptimizationRunJob`:
+1. wraps the base prompt's instructions and examples in a DSPy module whose signature mirrors `GeneratedPage`;
+2. runs the chosen optimizer, with the configured metric as its objective;
+3. exports the best program's instructions and demos as a new `PromptVersion` with status `candidate`;
+4. starts an eval run of that candidate on the dev split, through the production path (D13).
+
+The run page shows progress, the optimizer's trial log, the candidate's diff against its base, and its eval scores. A **Promote** button promotes the candidate.
+
+### 9.5 Metrics
+
+| Metric | How it's measured | Default weight |
+|---|---|---|
+| **Schema validity** | The output validates as `GeneratedPage` / `DocPage` | Gate: 0 if invalid |
+| **Faithfulness** (required) | Share of claims in the output supported by the source. It combines deterministic checks (no invented operations, parameters or types relative to the gold page and, where available, the parser) with a judge that checks each description against the source and returns per-claim verdicts. | 0.30 |
+| **Component accuracy** (required) | Field-level agreement with the gold page: operation set (precision, recall and F1 by derived ID), and for matched operations the accuracy of parameter names, locations, types, required flags and defaults, returns, signatures and groups. Reported per component and as a weighted mean. | 0.30 |
+| **Coverage** | Share of gold operations present | 0.10 |
+| **Example validity** | JSON parses, Python `ast.parse`s, curl paths exist in the gold surface | 0.10 |
+| **Prose quality** | Judge rubric, 1–5 | 0.20 |
+| Tokens, cost, latency | Reported, not scored | — |
+
+- Weights and the component weights inside component accuracy are editable in the Metrics section. A change creates a new metric version, which is recorded on every run.
+- Metric code lives in `tuning_app` (Plain-free modules). It reuses v6's pure metric functions where they still apply.
+
+## 10. Input Handling and Zip Safety
+
+Unchanged from v6, except for the lower size cap:
 
 | Rule | Limit (setting) |
 |---|---|
-| Upload size (compressed) | 5 MB (`GENERATIONS_MAX_INPUT_BYTES`) |
+| Upload or paste size | 1 MB (`GENERATIONS_MAX_INPUT_BYTES`) |
 | Total uncompressed bytes read | 50 MB (`SOURCES_ZIP_MAX_UNCOMPRESSED_BYTES`) |
 | Per-file uncompressed size | 5 MB (`SOURCES_ZIP_MAX_FILE_BYTES`) |
 | Number of entries | 5,000 (`SOURCES_ZIP_MAX_ENTRIES`) |
 
-- **In memory only.** Archives are read with `zipfile` from the stored bytes and never extracted to disk.
-- **Byte counting.** Bytes are counted *while reading* each member rather than trusted from headers. Exceeding any limit aborts with `input_error`, which blocks zip bombs.
-- **Path safety.** Paths are normalized to relative, `/`-separated form. Absolute paths, `..` segments, drive letters, and symlink entries are rejected.
-- **Skipped entries.** Nested archives, binary files, and files that aren't valid UTF-8 are skipped and recorded in the manifest with the reason.
-- **Common root.** A single top-level folder (the usual GitHub "Download ZIP" shape) is stripped.
-- **Visibility.** The resulting manifest is shown on the generation page as "Files read (N included, M skipped)", so the user can see exactly what was documented.
+- Archives are read in memory, and bytes are counted while reading.
+- Absolute paths, `..`, drive letters and symlinks reject the archive.
+- Nested archives, binary files and non-UTF-8 files are skipped with a reason.
+- A single top-level folder is stripped, and the manifest is shown.
+- For the `llm` strategy, the adapter's `includes()` and default excludes still decide which files are sent to the LLM. This keeps tests, virtualenvs and build output out of the prompt.
 
-## 9. Background Generation
+## 11. Observability
 
-```python
-# app/generations/jobs.py
-@register_job
-class GenerateDocJob(Job):
-    def __init__(self, generation_id: int): ...
-    def default_concurrency_key(self): return f"generation-{self.generation_id}"
-    def default_retries(self): return 0
-    def run(self):
-        # Exit if status != "pending".
-        # Run bundle → detect → extract → batch → enrich → overview → merge,
-        # updating stage/progress and checking the soft timeout between batches.
-    def on_aborted(self, result):
-        # status="failed", error_code="worker_lost"
-```
+### 11.1 Instrumentation
 
-**State machine**
-```
-pending ──► running ──► succeeded
-   │           └──────► failed (input_error | validation_error | provider_error | timeout | worker_lost)
-   └──────────────────► failed (enqueue_error)
-```
+Unchanged from v6, in both apps:
+- Plain's request, database and job spans
+- OpenInference spans (`openinference-instrumentation-litellm` in both apps, plus `openinference-instrumentation-dspy` in the Tuning app)
+- stage spans
+- `docs.*` baggage (generation ID, eval run ID, prompt version, model)
+- a job's root span continues its request's trace
 
-- `GENERATIONS_TIMEOUT_S` defaults to `900`.
-- **Regenerate** creates a new `Generation` from the stored input bytes.
-- **Polling:**
-  - The status fragment uses `hx-trigger="every 2s"`.
-  - On success, the server responds with `HX-Redirect`.
-  - On failure, it returns an error fragment with Retry, using HTTP 286 to stop polling.
-- **Worker:** runs as `plain jobs worker`. In dev it runs alongside the server via `[tool.plain.dev.run]`.
+### 11.2 Selecting the backend in the UI [Decided]
 
-## 10. Observability
+- `RuntimeSettings.trace_backends` is a subset of `{native, langfuse}`. It is edited only on the Tuning app's **Settings** page and applies to both apps. The Docs app shows the current selection read-only.
+- At startup each process attaches a processor for every backend that *could* be used. `native` is always available. `langfuse` is available when its credentials are set in the environment.
+- A **routing processor** forwards each finished span only to the currently selected backends. It reads the selection from the database, caching it for at most `TELEMETRY_SETTINGS_TTL_S` seconds (default 10), so changes apply without a restart.
+- Langfuse can't be selected while its credentials are missing. The Settings page says which variables to set.
+- Feedback is always stored natively, and is mirrored to Langfuse when it is selected (as in v6).
 
-### 10.1 Design
+### 11.3 Backends
 
-There are two layers, and the split between them is the whole design.
+Unchanged from v6:
 
-1. **Instrumentation** is always OpenTelemetry, and it is the same regardless of backend:
-   - Plain's built-in spans for requests, database queries, and `plain.jobs` enqueue and execution (linked to the originating request);
-   - `openinference-instrumentation-dspy` for DSPy module and LM calls;
-   - the job's own stage spans (`bundle`, `extract`, `enrich.batch[n]`, `overview`, `merge`), carrying `docs.*` attributes;
-   - `generation_id` and `program_version`, propagated to every span via OTel Baggage and a `BaggageSpanProcessor`.
-2. **Destination** is a `TraceBackend`. It is selected by setting, and several can be active at once.
-
-No view, job, or `app/llm` module imports a backend. The only callers are `app/telemetry/config.py` (at startup) and the feedback and trace-link helpers in `app/telemetry/api.py`.
-
-### 10.2 Interface
-
-```python
-# app/telemetry/backends/base.py
-from typing import Protocol
-from opentelemetry.sdk.trace import SpanProcessor
-
-class TraceBackend(Protocol):
-    name: str
-
-    def span_processor(self) -> SpanProcessor:
-        """Processor added to the shared TracerProvider (always a BatchSpanProcessor)."""
-
-    def trace_url(self, trace_id: str) -> str | None:
-        """Where a human can view this trace."""
-
-    def record_feedback(self, trace_id: str, feedback: "FeedbackEvent") -> None:
-        """Mirror feedback to the backend. Must never raise."""
-
-    def shutdown(self) -> None: ...
-```
-
-```python
-# app/telemetry/config.py  (ready())
-existing = trace.get_tracer_provider()
-if isinstance(existing, sdk_trace.TracerProvider):
-    provider = existing              # something already installed a real provider: attach to it
-else:
-    provider = sdk_trace.TracerProvider(
-        resource=Resource.create({"service.name": settings.TELEMETRY_SERVICE_NAME})
-    )
-    trace.set_tracer_provider(provider)
-
-provider.add_span_processor(BaggageSpanProcessor(ALLOW_DOCS_KEYS))
-for backend in build_backends(settings.TELEMETRY_BACKENDS):   # factory keyed by name
-    provider.add_span_processor(backend.span_processor())
-DSPyInstrumentor().instrument()
-```
-
-**Provider rules** **[Decided]**
-
-OpenTelemetry allows only one global tracer provider per process, and a second `set_tracer_provider()` call is ignored with only a log warning. To avoid silently losing all traces:
-
-1. **Attach, don't replace.** At startup, `app.telemetry` reuses an existing SDK `TracerProvider` if one is present. It creates and registers its own only when none exists. Package order in `INSTALLED_PACKAGES` therefore cannot disconnect the backends. `app.telemetry` is still listed first among local packages, so spans created during startup are not dropped.
-2. **Verify in tests.** An integration test boots the app with an in-memory exporter backend, performs one request that enqueues a job, runs the job, and asserts both of the following:
-   - spans from the request, the job, and a DSPy call all arrived;
-   - those spans share one trace ID.
-   If the backends ever become disconnected, CI fails instead of the trace viewer going quietly empty.
-
-```python
-# app/telemetry/api.py  — the only surface business code uses
-def trace_url(trace_id: str) -> str | None: ...        # first active backend with a URL
-def record_feedback(generation, event) -> Feedback: ... # save natively, then mirror to each backend
-```
-
-### 10.3 Backends
-
-| | `native` | `langfuse` |
-|---|---|---|
-| **Span export** | `PostgresSpanExporter` in a `BatchSpanProcessor` → `trace_spans` table | `OTLPSpanExporter` in a `BatchSpanProcessor` → `{LANGFUSE_BASE_URL}/api/public/otel`, Basic auth built from `LANGFUSE_PUBLIC_KEY:LANGFUSE_SECRET_KEY` |
-| **Trace UI** | In-app viewer at `/traces/` (§10.4) | Langfuse UI; the link is `{LANGFUSE_BASE_URL}/project/{LANGFUSE_PROJECT_ID}/traces/{trace_id}` |
-| **Feedback mirror** | No-op (already stored natively) | Langfuse SDK `create_score(trace_id=…, name="user_feedback", value=…, comment=…)`, sent in a background job |
-| **Needs** | Postgres only | Langfuse project and keys |
-
-**Selection:** `TELEMETRY_BACKENDS` is a list, for example `["native"]`, `["langfuse"]`, `["native", "langfuse"]`, or `[]`. Changing it takes effect on restart of both the web and worker processes.
-
-**`PostgresSpanExporter` rules**
-- It runs on the BatchSpanProcessor's background thread and writes with a **dedicated raw `psycopg` connection**, not the ORM.
-  - This avoids sharing request-scoped connections across threads.
-  - It also keeps its own inserts out of Plain's query instrumentation. Otherwise every export would produce new spans in a feedback loop.
-- Batches are bulk-inserted in one statement.
-- On any error, it drops the batch, logs a warning (at most once a minute), and returns `FAILURE`. **Export never affects a generation.**
-- Individual attribute values are truncated to `TELEMETRY_NATIVE_MAX_ATTRIBUTE_BYTES` (default 256 KB) with a `…[truncated]` marker, so large batch prompts don't bloat the table.
-
-### 10.4 Native Trace Viewer
-
-This is a small Plain package, `app/traces/`, that renders stored spans using the same design tokens and elements as the rest of the app.
-
-| Page | Contents |
+| Backend | How it works |
 |---|---|
-| `/traces/` | Recent traces: root span name, duration, status, and `generation_id` link; filterable by generation and status |
-| `/traces/<trace_id>/` | Waterfall timeline of the span tree, with durations as bars; errors highlighted |
-| Span detail (HTMX panel) | Attributes and events. **LLM spans** get a dedicated view built from OpenInference attributes: model, input and output messages, and token counts (prompt, completion, total) |
-| Generation page | Summary strip: total LLM calls, total tokens, wall time, plus a "View trace" link via `trace_url()` |
+| `native` | Raw-psycopg exporter to `trace_spans`, never raises, attributes truncated |
+| `langfuse` | OTLP with Basic auth; scores sent from a background job; the client uses a private tracer provider so spans aren't sent twice |
 
-**Retention:** a scheduled job in `JOBS_SCHEDULE` prunes spans older than `TRACES_RETENTION_DAYS` (default 30) once a day.
+### 11.4 Trace viewer
 
-### 10.5 Feedback
+The v6 viewer moves to the shared `d2u.traces` package, mounted at `/traces` in the Docs app and `/tuning/traces` in the Tuning app. Eval-run spans carry `docs.eval_run_id`, and the viewer can filter by it.
 
-- On the generation page, the user can mark the whole page, or a single operation card, as 👍 or 👎, with an optional correction comment.
-- `record_feedback()` saves a `Feedback` row, then mirrors it to each active backend.
-- `dspy_pipeline/` can export 👎 feedback with comments as candidate dataset entries (`optimize.py export-feedback`). Candidates are reviewed by hand before being added to a dataset.
+## 12. Rendering, Design System and Export
 
-### 10.6 Why not a hand-written logging adapter
+Unchanged from v6, except for where things live:
+- The generated `tokens.css`, `components.css`, `docpage.js` and all shared elements (`doc.*`, `traces.*`, the app-shell components) move into the shared Plain package `d2u.ui`.
+- Each app keeps only its own page templates and app-specific elements.
+- `scripts/sync_design.py` now writes to `shared/src/d2u/ui/assets/css/tokens.css`.
 
-An earlier proposal used a single `ObservabilityProvider` protocol covering `get_prompt`, `log_trace`, and `add_feedback`, with native and Langfuse implementations. v6 keeps the good parts: a Protocol, a settings-keyed factory, and backend-agnostic business code. It changes three things:
-
-- **No `get_prompt`.** Prompts are DSPy program artifacts (§6.3). A second prompt store would bypass optimization and create two sources of truth.
-- **No manual `log_trace`.** Logging only the final input and output after the call loses the per-batch LLM calls, retries, token counts, latencies, and the request → job linkage. OTel instrumentation captures all of those automatically.
-- **No per-call `flush()`.** It blocks the caller. Backends export on background threads instead.
-
-## 11. Rendering, Design System, and Export
-
-### 11.1 Design System (OpenDesign)
-
-- `design/docs-to-ui/` is an OpenDesign design-system package containing `manifest.json`, `DESIGN.md`, and `tokens.css`. It is created from `DESIGN_BRIEF.md`.
-  - `tokens.css` is the only design file the app consumes.
-- `design/docs-to-ui/reference/` holds three HTML mockups (`doc-page.html`, `app-shell.html`, `trace-viewer.html`). They are the visual target for the elements in §11.2, and are never served by the app.
-- **Source of truth.** The repo copy is authoritative.
-  - The design package is produced in the OpenDesign app on Windows and copied into the repo through the WSL path (`\\wsl.localhost\<distro>\home\<user>\code\docs-to-ui\design\docs-to-ui\`).
-  - To revise it, re-import that folder with OpenDesign's local-folder import, then copy the results back.
-  - Coding agents never edit this folder (see `AGENTS.md` §0).
-- **Token names [Decided].**
-  - `tokens.css` declares every token in OpenDesign's shared token schema: surface, foreground, border, accent, semantic, fonts, type scale, leading and tracking, spacing, section rhythm, radius, elevation, focus, motion, and layout.
-  - It also declares Docs-to-UI extensions prefixed `--d2u-`: `--d2u-info`, HTTP method colors, code and syntax colors, sidebar and header sizes, and trace span colors.
-  - The full list is in `DESIGN_BRIEF.md` §6. Components reference only these names.
-- **Themes [Decided].**
-  - Light values go in `:root`.
-  - Dark values override the same token names under `[data-theme="dark"]`, and under `@media (prefers-color-scheme: dark)` when no theme is set.
-  - Exports follow the reader's system preference.
-  - Component CSS contains no theme-specific rules.
-- **Fonts [Decided].**
-  - System font stacks by default, with no web-font CDNs, so exports make no network requests (§11.4).
-  - If custom fonts are used, they ship as `.woff2` in `design/docs-to-ui/fonts/`. They are copied to app assets, and inlined as base64 `@font-face` rules in HTML exports.
-- `scripts/sync_design.py`:
-  1. validates the manifest;
-  2. checks that every required token (the shared schema plus `--d2u-` extensions) is declared, including a dark-theme block;
-  3. rejects `url()` values that point to the network;
-  4. copies `tokens.css` (and any fonts) into `app/assets/`.
-  CI fails if the copy is stale.
-- Component CSS may use `var(--…)` tokens only. A test rejects raw color literals.
-
-### 11.2 Elements
-
-Elements live in `app/templates/elements/`.
-
-| Namespace | Components |
-|---|---|
-| `doc.*` | `Layout`, `OperationCard` (includes the "not enriched" state and the source location), `ParamTable`, `CodeExamples`, `Prose`, `FeedbackButtons` (hidden in export) |
-| App shell | `SourceForm` (file, zip or paste, with language override), `StatusFragment`, `ErrorFragment`, `FileManifest` |
-| `traces.*` | `Waterfall`, `SpanDetail`, `LLMCallView` |
-
-### 11.3 Interactivity Constraint
-
-Doc-page interactivity (navigation, collapsing sections, example tabs, copy buttons) uses one vanilla JS file, `app/assets/js/docpage.js`, so that exports work without a server. HTMX is used only in the app shell and the trace viewer.
-
-### 11.4 Export
-
-| Route | Returns |
-|---|---|
-| `GET /generations/<id>/export.html` | Self-contained file: tokens, component CSS, and `docpage.js` inlined; no external requests, HTMX, app links, or feedback buttons |
-| `GET /generations/<id>/export.json` | The raw `DocPage` |
-
-## 12. Persistence
+## 13. Persistence
 
 | Model | Package | Key fields |
 |---|---|---|
-| `Generation` | `generations` | `id`, `language`, `input_origin` (paste/file/zip), `input_filename`, `input_blob` (bytea, original bytes), `input_sha256`, `input_bytes`, `input_manifest` (JSON: included and skipped files with reasons), `status`, `stage`, `progress`, `program_version`, `model`, `doc_json`, `error_code`, `error_detail` (incl. path and line), `trace_id`, timestamps |
-| `Feedback` | `generations` | `id`, `generation_id`, `operation_id` (nullable = whole page), `score` (+1/−1), `comment`, `trace_id`, `created_at` |
-| `TraceSpan` | `traces` | `trace_id`, `span_id` (PK pair), `parent_span_id`, `name`, `kind`, `start_time`, `end_time`, `duration_ms`, `status_code`, `status_message`, `attributes` (JSONB), `events` (JSONB), `resource` (JSONB), `generation_id` (indexed, copied from baggage), `is_llm` (indexed) |
+| `Generation` | `d2u.generations` | v6 fields, plus `strategy`, `model_config_id`, `prompt_version_id`, `input_tokens`, `output_tokens`, `cost_usd`, `latency_ms`. Drops `program_version`. |
+| `Feedback` | `d2u.generations` | unchanged |
+| `ModelConfig` | `d2u.registry` | §7 |
+| `PromptVersion`, `PromptPromotion` | `d2u.registry` | §8 |
+| `RuntimeSettings` | `d2u.registry` | singleton: `active_model_id`, `trace_backends`, `default_judge_model_id` |
+| `TraceSpan` | `d2u.traces` | v6, plus an indexed `eval_run_id` |
+| `GoldSet`, `GoldExample`, `GoldExampleRevision` | `tuning_app` (`app.goldsets`) | §9.2 |
+| `EvalRun`, `EvalResult` | `tuning_app` (`app.evals`) | §9.3 |
+| `OptimizationRun` | `tuning_app` (`app.optimization`) | §9.4 |
+| `MetricVersion` | `tuning_app` (`app.evals`) | §9.5 |
 
-- All models use `plain.postgres`.
-- `TraceSpan` rows are written only by the native exporter.
+- Shared models are defined once, in `d2u` Plain packages, and installed by both apps. Tuning-only models are installed only by the Tuning app.
+- Either app can run `plain postgres sync`. Migrations for shared packages are identical in both.
+- Existing v6 data migrates forward: pages keep rendering (§5), and `program_version` values are recorded in the generation's notes.
 
-## 13. Optimization Pipeline
+## 14. Jobs and Workers
 
-```
-dspy_pipeline/
-├── datasets/{openapi,python}/   # JSONL, train/dev split; include multi-file zips
-├── metrics/{enrich,extract}.py
-└── optimize.py                  # optimize | evaluate | export-feedback
-```
-
-**Metric for `EnrichOperations`**
-
-| Component | What it checks | Weight |
+| App | Worker command | Jobs |
 |---|---|---|
-| Schema validity | Output parses as `BatchEnrichment` | Hard gate: 0 if invalid |
-| Coverage | Share of operation IDs that have docs | 0.25 |
-| Fidelity | No references to params or operations absent from the surface | 0.25 |
-| Consistency | Does not contradict `source_description` (judge model) | 0.15 |
-| Example validity | JSON parses, Python `ast.parse`s, curl paths exist in the surface | 0.15 |
-| Prose quality | Judge rubric score | 0.20 |
+| Docs app | `plain jobs worker` (queue `docs`) | `GenerateDocJob`, `MirrorFeedbackJob`, `PruneTracesJob` (scheduled) |
+| Tuning app | `plain jobs worker` (queue `tuning`) | `EvalRunJob`, `OptimizationRunJob`, `TestModelJob` |
 
-Evaluation runs send traces to whichever backends are configured, so eval runs are inspectable in the same UI as normal generations.
+Queues are separate so each app's worker runs only its own jobs, even though both share the job tables.
 
-## 14. Repository Layout (Plain conventions)
+## 15. Repository Layout
 
 ```text
 docs-to-ui/
-├── .github/workflows/{ci.yml, evals.yml}
-├── app/
-│   ├── settings.py                 # INSTALLED_PACKAGES (app.telemetry first among local pkgs), JOBS_SCHEDULE
-│   ├── urls.py
-│   ├── templates/{base.html, export_base.html, elements/}
-│   ├── assets/{css/tokens.css, css/components.css, js/docpage.js}
-│   ├── telemetry/                  # Plain package
-│   │   ├── config.py               # ready(): TracerProvider, backends, DSPy instrumentation
-│   │   ├── api.py                  # trace_url(), record_feedback()
-│   │   ├── default_settings.py     # TELEMETRY_*
-│   │   └── backends/{base,native,langfuse}.py
-│   ├── traces/                     # Plain package: native trace store + viewer
-│   │   ├── models.py               # TraceSpan
-│   │   ├── exporter.py             # PostgresSpanExporter
-│   │   ├── views.py, urls.py
-│   │   ├── jobs.py                 # PruneTracesJob
-│   │   ├── default_settings.py     # TRACES_RETENTION_DAYS
-│   │   └── templates/traces/
-│   ├── generations/                # Plain package: product loop
-│   │   ├── models.py               # Generation, Feedback
-│   │   ├── views.py, urls.py, forms.py
-│   │   ├── jobs.py                 # GenerateDocJob, MirrorFeedbackJob
-│   │   ├── default_settings.py     # GENERATIONS_*, LLM_*
-│   │   └── templates/generations/
-│   ├── sources/                    # Plain package: bundles + adapters
-│   │   ├── bundle.py               # SourceFile, SourceBundle
-│   │   ├── archive.py              # safe zip reader
-│   │   ├── registry.py
-│   │   ├── default_settings.py     # SOURCES_*
-│   │   └── adapters/{base,openapi,python}.py
-│   └── llm/                        # plain Python, no Plain imports
-│       ├── schemas.py, signatures.py, batching.py, generator.py
-├── DESIGN_BRIEF.md                 # input for OpenDesign
-├── design/docs-to-ui/{manifest.json, DESIGN.md, tokens.css, fonts/?, reference/}
-├── artifacts/programs/
-├── dspy_pipeline/
+├── pyproject.toml                  # uv workspace root: members, shared dev tooling
+├── uv.lock
+├── shared/                         # the d2u library (workspace member)
+│   ├── pyproject.toml              # litellm, pydantic, nh3, pyyaml, markdown-it-py, OTel, psycopg; no DSPy
+│   └── src/d2u/
+│       ├── schemas/                # Plain-free: GeneratedPage, DocPage, ...
+│       ├── sources/                # Plain-free: bundles, safe zip reader, adapters, registry
+│       ├── generation/             # Plain-free: prompt rendering, LiteLLM call, splitting, IDs, strategies
+│       ├── prompts/                # baseline prompt files per language and strategy
+│       ├── registry/               # Plain package: ModelConfig, PromptVersion, RuntimeSettings
+│       ├── generations/            # Plain package: Generation, Feedback
+│       ├── telemetry/              # Plain package: provider, routing processor, backends, api
+│       ├── traces/                 # Plain package: TraceSpan, exporter, viewer views and templates
+│       └── ui/                     # Plain package: assets (tokens, components, JS) and shared elements
+├── docs_app/                       # Plain project "docs" (workspace member)
+│   ├── pyproject.toml              # depends on d2u; no DSPy
+│   └── app/
+│       ├── settings.py, urls.py
+│       └── generate/               # form, views, GenerateDocJob, export
+├── tuning_app/                     # Plain project "tuning" (workspace member)
+│   ├── pyproject.toml              # depends on d2u and dspy
+│   └── app/
+│       ├── settings.py, urls.py
+│       ├── models_ui/              # model registry screens
+│       ├── prompts/                # prompt versions, promotion
+│       ├── goldsets/               # gold sets and editor
+│       ├── evals/                  # eval runs, metrics, comparison
+│       └── optimization/           # DSPy wrapper, optimizers, runs
+├── design/docs-to-ui/              # OpenDesign package (never edited by agents)
 ├── scripts/sync_design.py
-├── tests/{fixtures/{openapi,python,zips}, unit, integration, e2e}
-├── pyproject.toml                  # deps + groups, [tool.ruff], [tool.plain.dev.run]
-├── .env.example
-├── .gitattributes                  # * text=auto eol=lf (Linux/WSL-only development)
-├── Dockerfile                      # base, test, prod
+├── tests/                          # shared/, docs_app/, tuning_app/, e2e/, fixtures/
+├── Dockerfile                      # base, test, docs, tuning stages
 ├── docker-compose.yml              # postgres
-└── docker-compose.test.yml         # postgres, web, worker, playwright
+└── docker-compose.test.yml
 ```
 
-**Development environment [Decided]**
+- Each Plain project runs from its own directory, e.g. `uv run --directory docs_app plain dev`. Each has its own `.plain/` state, `.env` and `.env.example`; shared values such as `DATABASE_URL` appear in both.
+- The projects are named `docs` and `tuning`, so `plain dev` serves them at `https://docs.localhost:8443` and `https://tuning.localhost:8444`.
+- The Docs app's environment never installs DSPy. A test enforces this.
 
-| Where | What |
-|---|---|
-| WSL (Ubuntu), Linux filesystem | The repository (`~/code/docs-to-ui`), `git`, `gh`, `uv`, `plain`, the coding agent (OpenCode), tests, and `docker compose` |
-| Windows | The browser (reaching the app through WSL localhost forwarding), Docker Desktop (WSL2 backend), and the OpenDesign app with its own Windows OpenCode |
+## 16. Configuration Summary
 
-- The repository never lives on a Windows drive (`/mnt/c/…`), and Windows Git clients are not used on it.
-- The only thing that crosses from Windows into the repo is the design package (§11.1), which is copied in by hand.
-- The full agent rules are in `AGENTS.md` §0.
-
-**Plain conventions applied**
-- Local packages are created with `plain create <name>`, listed in `INSTALLED_PACKAGES`, and use prefixed settings in `default_settings.py`.
-- Installed Plain packages: `plain.postgres`, `plain.jobs`, `plain.htmx`, `plain.elements`, `plain.pytest`, `plain.code`, and `plain.toolbar` (dev).
-- Schema changes go through `plain.postgres`' workflow, including `plain postgres sync`.
-
-**Dependency groups**
-
-| Group | Contents |
-|---|---|
-| default | App runtime, including `dspy`, `openinference-instrumentation-dspy`, OTel SDK and OTLP exporter, `psycopg`, `langfuse` (imported only when that backend is active), `nh3`, `pyyaml` |
-| `optimize` | Pipeline-only tooling |
-| `dev` | Playwright and test utilities |
-
-## 15. Configuration Summary
+Environment variables (secrets and per-process settings). Runtime choices live in `RuntimeSettings` and the registry, and are edited in the UI.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `DATABASE_URL` | required | Postgres connection |
-| `GEMINI_API_KEY` | — | Gemini API authentication |
-| `PLAIN_LLM_MODEL` | `gemini/gemini-3.8-flash` | Generation model, or `fake` |
-| `PLAIN_LLM_THINKING_LEVEL` | `medium` | Thinking level for generation |
-| `PLAIN_LLM_JUDGE_MODEL` | `gemini/gemini-3.8-flash` | Judge model for evals |
-| `PLAIN_LLM_JUDGE_THINKING_LEVEL` | `high` | Thinking level for the judge |
-| `PLAIN_LLM_PROGRAM_VERSION` | `baseline` | Which optimized artifact to load |
-| `PLAIN_LLM_BATCH_TOKEN_BUDGET` | `60000` | Token budget per batch |
-| `PLAIN_LLM_BATCH_MAX_OPERATIONS` | `25` | Operations per batch |
-| `PLAIN_LLM_MAX_CONCURRENCY` | `4` | Parallel batch calls |
-| `PLAIN_LLM_FAKE_RESPONSES` | `""` | DummyLM fixture file used when `LLM_MODEL=fake` (tests set it in `.env.test`) |
-| `PLAIN_GENERATIONS_MAX_INPUT_BYTES` | `5242880` | Upload / paste cap |
+| `DATABASE_URL` | required | Shared Postgres connection (both apps) |
+| `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, … | — | Provider keys, referenced by name from `ModelConfig.api_key_env`. The seeded models use these two. |
+| `PLAIN_GENERATIONS_MAX_INPUT_BYTES` | `1048576` | Upload or paste cap (1 MB) |
 | `PLAIN_GENERATIONS_TIMEOUT_S` | `900` | Soft timeout |
-| `PLAIN_SOURCES_ENABLED_ADAPTERS` | `["openapi","python"]` | Enabled language adapters |
+| `PLAIN_GENERATIONS_MAX_CONCURRENCY` | `4` | Parallel calls when an input is split |
+| `PLAIN_GENERATIONS_ENABLE_HYBRID` | `false` | Offer the `hybrid` strategy in the Docs app |
+| `PLAIN_GENERATIONS_FAKE_RESPONSES` | `""` | Fixture file for the fake model (tests only) |
+| `PLAIN_SOURCES_ENABLED_ADAPTERS` | `["openapi","python"]` | Enabled languages |
 | `PLAIN_SOURCES_ZIP_MAX_UNCOMPRESSED_BYTES` | `52428800` | Zip total uncompressed limit |
 | `PLAIN_SOURCES_ZIP_MAX_FILE_BYTES` | `5242880` | Zip per-file limit |
 | `PLAIN_SOURCES_ZIP_MAX_ENTRIES` | `5000` | Zip entry limit |
-| `PLAIN_TELEMETRY_BACKENDS` | `["native"]` | Active trace backends |
-| `PLAIN_TELEMETRY_SERVICE_NAME` | `docs-to-ui` | Service name on traces |
+| `PLAIN_TELEMETRY_SERVICE_NAME` | `docs-to-ui-docs` / `docs-to-ui-tuning` | Service name on traces |
 | `PLAIN_TELEMETRY_NATIVE_MAX_ATTRIBUTE_BYTES` | `262144` | Native attribute truncation |
+| `PLAIN_TELEMETRY_SETTINGS_TTL_S` | `10` | How long a backend selection is cached |
 | `PLAIN_TRACES_RETENTION_DAYS` | `30` | Native trace retention |
-| `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_PROJECT_ID` | — | Required when `langfuse` is active; checked at startup. Stored as `TELEMETRY_LANGFUSE_*` settings, so `PLAIN_TELEMETRY_LANGFUSE_*` also works |
+| `PLAIN_TUNING_MAX_EVAL_CONCURRENCY` | `4` | Parallel examples in an eval run |
+| `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_PROJECT_ID` | — | Needed before Langfuse can be selected |
 
-## 16. Testing and CI
+Removed from v6:
+- `PLAIN_TELEMETRY_BACKENDS` (now chosen in the UI)
+- `PLAIN_LLM_*` (models are in the registry, prompts in `PromptVersion`, and batching is replaced by §6.4)
+
+## 17. Testing and CI
 
 | Layer | Scope | LLM | Runs |
 |---|---|---|---|
-| Unit | Schemas; adapter contract suite; **zip safety** (bomb, zip-slip, symlink, non-UTF-8, entry cap, root stripping); batching; merge; sanitizer; CSS token check; backend factory | None / `DummyLM` | Every push |
-| Integration | `GenerateDocJob` through all states; spans asserted with an in-memory exporter; **telemetry wiring: request → job → DSPy spans arrive with one trace ID** (§10.2); **`PostgresSpanExporter` writes and truncates correctly and never raises**; feedback save + mirror (Langfuse client mocked) | `DummyLM` | Every push |
-| E2E | Zip upload → poll → page → file manifest; failure → retry; export opened from disk; feedback click; trace viewer waterfall and LLM span view | `LLM_MODEL=fake`, worker running, `TELEMETRY_BACKENDS=["native"]` | Every push |
-| Artifact round-trip | Save → load → run | `DummyLM` | Every push |
+| Unit (`shared`) | Schemas, ID derivation, `GeneratedPage` → `DocPage`, splitting and merging, prompt rendering, zip safety, adapters and contract suite, routing processor | Fake | Every push |
+| Unit (`tuning_app`) | Metrics (faithfulness, component accuracy and the rest), gold-set validation, DSPy wrapper export to `PromptVersion` | Fake / DummyLM | Every push |
+| Integration | Docs app job through every state; model registry and activation; prompt promotion and rollback; runtime backend switching; eval run and optimization run jobs; telemetry wiring (one trace ID) | Fake | Every push |
+| E2E | Docs app: generate, poll, page, export, feedback. Tuning app: add a model, curate a gold example, run an eval, compare runs, optimize, promote, then see the Docs app use it. Switch trace backends in the UI. | Fake, both workers running | Every push |
+| Dependency guard | The Docs app's environment can't import `dspy` | — | Every push |
 | Design sync | `tokens.css` copy matches `design/` | — | Every push |
-| Evals | Full metric on dev sets | Gemini | Manual |
-
-## 17. Open Questions
-
-1. **Judge independence.** The judge shares the generation model. Consider a different Gemini tier once evals exist.
-2. **Rate limits.** Confirm that `LLM_MAX_CONCURRENCY=4` fits your Gemini tier.
+| Real-model evals | Eval and optimization runs against real models | Real | Manual (Tuning app UI, or `evals.yml`) |
 
 ## 18. Milestones
 
 | | Scope | Proves |
 |---|---|---|
-| **M1** | OpenAPI adapter (single file) → render → HTML/JSON export with no LLM; OpenDesign sync; E2E harness | Contracts, tokens, export |
-| **M2** | Enrichment + batching + `GenerateDocJob` + polling; OTel instrumentation; **`native` backend + trace viewer** | Core loop, traces |
-| **M3** | `SourceBundle` + safe zip reader; Python adapter; OpenAPI multi-file `$ref`s; adapter contract suite | Codebases as input |
-| **M4** | Feedback; datasets, metrics, `optimize.py`, first promoted artifact, `evals.yml` | Measurable quality |
-| **M5** | `langfuse` backend + feedback mirroring; polish | Backend choice |
+| **R1** | Restructure into the uv workspace (`shared`, `docs_app`, `tuning_app` skeleton). Move v6 code into `d2u` and `docs_app` with no behavior change, and keep every test green. | Layout |
+| **R2** | Shared registry (`ModelConfig`, `PromptVersion`, `RuntimeSettings`) with seeds. Direct LiteLLM generation (`GeneratedPage`, ID derivation, splitting, 1 MB cap) in the Docs app. `hybrid` and `parser` strategies on the direct client. DSPy removed from the Docs app. | Direct generation |
+| **R3** | Trace backend selection in the UI with the routing processor. Shared trace viewer in both apps. | Selectable telemetry |
+| **R4** | Tuning app: model management, gold sets (create, seed, import, edit, approve, split), eval runs with every §9.5 metric, results and comparison UI. | Measurable quality |
+| **R5** | Tuning app: optimization runs with configurable DSPy optimizers, candidate export, promotion and rollback to the Docs app, feedback-to-gold import, `evals.yml`. | Tuning loop |
+| **R6** | Containers for both apps and workers, CI, README and docs, UAT plan update. | Ship |
 
-## 19. Changelog
+## 19. Questions Resolved in Review
+
+1. **One app later.** The apps may merge into one with a Tuning section. To keep that cheap, all shared code and tables live in `d2u`, and every Tuning app route is under `/tuning/` from the start. **[Decided]**
+2. **Judge independence.** The seeded default judge is a Claude model; generation defaults to Gemini (D16). **[Decided]**
+3. **Cost limits.** No per-run spending caps. Costs are reported, not enforced. **[Decided]**
+4. **Where runtime settings are edited.** Only in the Tuning app: the active model, active prompt versions, the default judge and the trace backends. The Docs app shows them read-only. **[Decided]**
+
+There are no open questions.
+
+## 20. Development Environment
+
+Unchanged from v6: the repository and all tooling run in WSL on the Linux filesystem, while the browser, Docker Desktop and OpenDesign run on Windows. See `AGENTS.md` §0.
+
+## 21. Changelog
+
+**v7**
+- Split into two Plain apps sharing one database: the Docs app (direct LLM generation, no DSPy) and the Tuning app (evals and DSPy optimization, with a web UI).
+- The default strategy is now `llm`: the LLM produces the full page as Pydantic types through structured output. The parsers are kept for the `hybrid` and `parser` strategies.
+- IDs are derived in code from LLM output.
+- The input cap is lowered to 1 MB; oversized inputs are split and merged.
+- All LLM calls go through LiteLLM. Models live in a UI-managed registry, and API keys stay in environment variables.
+- Tuned prompts are `PromptVersion` data, promoted from the Tuning app.
+- Runtime settings (active model, prompts, judge, trace backends) change only in the Tuning app, whose routes all live under `/tuning/`. The seeded default judge is Claude.
+- Faithfulness and component accuracy are required metrics against curated gold sets.
+- The trace backend (native and/or Langfuse) is selectable in the UI without a restart.
+- Removed: DSPy program artifacts in the web app, `dspy_pipeline/` as a CLI-only tool, `PLAIN_LLM_*` and `PLAIN_TELEMETRY_BACKENDS`.
 
 **v6.3**
 - Recorded the development environment: the repository and all tooling in WSL, with the browser, Docker Desktop and OpenDesign on Windows.
