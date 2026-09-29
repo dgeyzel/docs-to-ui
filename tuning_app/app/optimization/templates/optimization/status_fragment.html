@@ -1,0 +1,10 @@
+<p
+    class="connection-test"
+    id="optimization-status"
+    hx-get="{{ url('optimization:status', id=run.id) }}"
+    hx-trigger="every 2s"
+    hx-swap="outerHTML"
+>
+    <span class="status-pill status-{{ run.status }}">{{ run.status }}</span>
+    <span>{% if run.stage %}Stage: {{ run.stage }}{% elif run.status == "pending" %}Waiting for the Tuning app's worker…{% else %}Starting…{% endif %}</span>
+</p>

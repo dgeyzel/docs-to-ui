@@ -25,6 +25,7 @@ INSTALLED_PACKAGES = [
     "app.prompts",
     "app.goldsets",
     "app.evals",
+    "app.optimization",
 ]
 
 MIDDLEWARE = [

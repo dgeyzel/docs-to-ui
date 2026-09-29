@@ -1117,6 +1117,24 @@ wheels = [
 ]
 
 [[package]]
+name = "openinference-instrumentation-dspy"
+version = "0.1.45"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "openinference-instrumentation" },
+    { name = "openinference-semantic-conventions" },
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-instrumentation" },
+    { name = "opentelemetry-semantic-conventions" },
+    { name = "typing-extensions" },
+    { name = "wrapt" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/35/81/0961bb9c42619d1cd1e0b1bcfd5acaed175b27f0868598c5f0473bb596fc/openinference_instrumentation_dspy-0.1.45.tar.gz", hash = "sha256:6bfe6ed981f9cf3017a80204fb1da2f7cb11fd2e3ec64ed5219fc106c0300053", size = 27252, upload-time = "2026-09-10T05:43:15.527Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3f/a9/c9f102f7720bb926494a29a99a56af1466016461b5f146b9522fcdf76074/openinference_instrumentation_dspy-0.1.45-py3-none-any.whl", hash = "sha256:ffcaaf8368b6338da123f867dec336d13ff7bb40defda22dbee6f171ba6002f6", size = 15723, upload-time = "2026-09-10T05:43:13.361Z" },
+]
+
+[[package]]
 name = "openinference-instrumentation-litellm"
 version = "0.1.46"
 source = { registry = "https://pypi.org/simple" }
@@ -2132,6 +2150,7 @@ source = { virtual = "tuning_app" }
 dependencies = [
     { name = "d2u" },
     { name = "dspy" },
+    { name = "openinference-instrumentation-dspy" },
 ]
 
 [package.dev-dependencies]
@@ -2143,6 +2162,7 @@ optimize = [
 requires-dist = [
     { name = "d2u", editable = "shared" },
     { name = "dspy", specifier = ">=3.4.0" },
+    { name = "openinference-instrumentation-dspy", specifier = ">=0.1.45" },
 ]
 
 [package.metadata.requires-dev]

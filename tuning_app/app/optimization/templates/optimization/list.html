@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% use_elements %}
+
+{% block title %}Optimization · Docs-to-UI Tuning{% endblock %}
+
+{% block content %}
+<main class="app-container">
+    <section class="card" aria-labelledby="optimization-heading">
+        <h1 class="card-title" id="optimization-heading">Optimization runs</h1>
+        <p class="hint">DSPy searches a gold set's train split for better instructions and few-shot examples, starting from a prompt version. The result becomes a candidate version, scored on the dev split through the Docs app's code before you promote it.</p>
+        <div class="button-row">
+            <a class="button button-primary" href="{{ url('optimization:create') }}">New optimization run</a>
+        </div>
+        {% if runs %}
+        <div class="table-scroll">
+            <table class="data-table">
+                <thead>
+                    <tr><th scope="col">Run</th><th scope="col">Base prompt</th><th scope="col">Gold set</th><th scope="col">Optimizer</th><th scope="col">Task model</th><th scope="col">Status</th><th scope="col">Candidate</th><th scope="col">Created</th></tr>
+                </thead>
+                <tbody>
+                    {% for run in runs %}
+                    <tr>
+                        <td><a href="{{ url('optimization:detail', id=run.id) }}">#{{ run.id }}</a></td>
+                        <td class="mono-text">{{ run.base_prompt }}</td>
+                        <td>{{ run.gold_set.name }}</td>
+                        <td>{{ labels[run.optimizer] }}</td>
+                        <td>{{ run.task_model_name }}</td>
+                        <td><StatusPill status={run.status} /></td>
+                        <td class="mono-text">{% if run.candidate %}<a href="{{ url('prompts:detail', id=run.candidate.id) }}">{{ run.candidate.version }}</a>{% else %}—{% endif %}</td>
+                        <td class="meta-text">{{ localtime(run.created_at).strftime("%b %d, %H:%M") }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="empty-state">No optimization runs yet.</p>
+        {% endif %}
+    </section>
+</main>
+{% endblock %}

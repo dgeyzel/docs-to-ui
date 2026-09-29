@@ -6,6 +6,7 @@ from app.dashboard.views import DashboardView, RootRedirectView
 from app.evals.urls import EvalsRouter, MetricsRouter
 from app.goldsets.urls import GoldSetsRouter
 from app.models_ui.urls import ModelsRouter
+from app.optimization.urls import OptimizationRouter
 from app.prompts.urls import PromptsRouter
 from app.settings_ui.urls import SettingsRouter
 
@@ -23,6 +24,7 @@ class AppRouter(Router):
         include("tuning/goldsets/", GoldSetsRouter),
         include("tuning/evals/", EvalsRouter),
         include("tuning/metrics/", MetricsRouter),
+        include("tuning/optimization/", OptimizationRouter),
         path("tuning/", DashboardView, name="dashboard"),
         path("", RootRedirectView),
     )

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}New optimization run · Docs-to-UI Tuning{% endblock %}
+
+{% macro select(field, label, hint="") -%}
+<div class="form-group">
+    <label class="form-label" for="{{ field.html_id }}">{{ label }}</label>
+    <select class="select" id="{{ field.html_id }}" name="{{ field.html_name }}">
+        {% for value, text in field.field.choices %}
+        <option value="{{ value }}" {% if value == field.value()|string %}selected{% endif %}>{{ text }}</option>
+        {% endfor %}
+    </select>
+    {% if hint %}<span class="hint">{{ hint }}</span>{% endif %}
+    {% for error in field.errors %}<span class="form-error" role="alert">{{ error }}</span>{% endfor %}
+</div>
+{%- endmacro %}
+
+{% block content %}
+<main class="app-container">
+    <form class="card settings-form" method="post" action="{{ url('optimization:create') }}" aria-labelledby="new-optimization-heading">
+        <h1 class="card-title" id="new-optimization-heading">New optimization run</h1>
+        {% for error in form.non_field_errors %}<p class="form-error" role="alert">{{ error }}</p>{% endfor %}
+        {{ select(form.base_prompt, "Base prompt version", "The llm version to start from; its language must match the gold set's.") }}
+        {{ select(form.gold_set, "Gold set", "Approved train examples drive the search; approved dev examples score the candidate.") }}
+        {{ select(form.task_model, "Task model", "Generates pages during the search, and proposes instructions for MIPROv2 and COPRO.") }}
+        {{ select(form.judge, "Judge model", "Grades faithfulness and prose inside the objective.") }}
+        {{ select(form.optimizer, "Optimizer") }}
+        {% for group in optimizers %}
+        <fieldset class="form-group choice-group">
+            <legend class="form-label">{{ group.label }} parameters{% if not group.available %} <span class="form-error">(needs the optimize dependency group)</span>{% endif %}</legend>
+            <div class="param-grid">
+                {% for item in group.fields %}
+                <div class="form-group">
+                    <label class="form-label" for="{{ item.input_name }}">{{ item.param.label }}</label>
+                    {% if item.param.choices %}
+                    <select class="select" id="{{ item.input_name }}" name="{{ item.input_name }}">
+                        {% for choice in item.param.choices %}<option value="{{ choice }}" {% if choice == item.value %}selected{% endif %}>{{ choice }}</option>{% endfor %}
+                    </select>
+                    {% else %}
+                    <input class="file-input mono-text" id="{{ item.input_name }}" name="{{ item.input_name }}" inputmode="decimal" value="{{ item.value }}">
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </fieldset>
+        {% endfor %}
+        <p class="hint">Only the chosen optimizer's parameters are used. Every trial calls the task and judge models, so real-model runs cost money.</p>
+        <div><button type="submit" class="button button-primary">Start optimization</button></div>
+    </form>
+</main>
+{% endblock %}

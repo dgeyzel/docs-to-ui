@@ -351,6 +351,8 @@ An **optimization run** takes:
 | `MIPROv2` | auto level (light, medium or heavy), max bootstrapped and labeled demos, number of trials, minibatch size, seed |
 | `COPRO` | breadth (10), depth (3), initial temperature where the model supports it |
 
+The objective is the eval metric (§9.5) computed on each trial's page after the production conversion (IDs derived in code), so DSPy optimizes exactly what evals report. The task model also proposes instructions for MIPROv2 and COPRO. COPRO is offered only for models that accept a temperature. The candidate is labeled `opt-<run id>`.
+
 `OptimizationRunJob`:
 1. wraps the base prompt's instructions and examples in a DSPy module whose signature mirrors `GeneratedPage`;
 2. runs the chosen optimizer, with the configured metric as its objective;

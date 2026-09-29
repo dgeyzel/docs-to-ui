@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% use_elements %}
+
+{% block title %}Optimization run #{{ run.id }} · Docs-to-UI Tuning{% endblock %}
+
+{% block content %}
+<main class="app-container">
+    <section class="card" aria-labelledby="run-heading">
+        <h1 class="card-title" id="run-heading">Optimization run #{{ run.id }}</h1>
+        <p class="meta-text">
+            {{ optimizer_label }} · base <a class="mono-text" href="{{ url('prompts:detail', id=run.base_prompt.id) }}">{{ run.base_prompt }}</a>
+            · <a href="{{ url('goldsets:detail', id=run.gold_set.id) }}">{{ run.gold_set.name }}</a> ({{ run.train_examples or "?" }} train examples)
+            · task {{ run.task_model_name }} · judge {{ run.judge_name }}
+            {% if run.gold_set_hash %}· gold hash <span class="mono-text" title="{{ run.gold_set_hash }}">{{ run.gold_set_hash[:12] }}</span>{% endif %}
+            {% if run.trace_id %}· <a href="{{ url('traces:detail', trace_id=run.trace_id) }}">Trace</a>{% endif %}
+        </p>
+        <p class="hint mono-text">{% for name, value in run.params.items() %}{{ name }}={{ value }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+        {% if run.finished %}
+        <p class="connection-test"><StatusPill status={run.status} /></p>
+        {% if run.error %}<p class="form-error" role="alert">{{ run.error }}</p>{% endif %}
+        {% else %}
+        {% include "optimization/status_fragment.html" %}
+        {% endif %}
+        {% if error %}<p class="form-error" role="alert">{{ error }}</p>{% endif %}
+    </section>
+
+    {% if run.candidate %}
+    <section class="card" aria-labelledby="candidate-heading">
+        <h2 class="card-title" id="candidate-heading">Candidate {{ run.candidate.version }}</h2>
+        <p>
+            <a class="mono-text" href="{{ url('prompts:detail', id=run.candidate.id) }}">{{ run.candidate }}</a>
+            <span class="role-badge">{{ run.candidate.status }}</span>
+            · {{ run.candidate.examples|length }} few-shot examples
+            · <a href="{{ url('prompts:diff') }}?a={{ run.base_prompt.id }}&b={{ run.candidate.id }}">Diff against {{ run.base_prompt.version }}</a>
+        </p>
+        {% if eval_run %}
+        <p>
+            Dev-set eval: <a href="{{ url('evals:detail', id=eval_run.id) }}">run #{{ eval_run.id }}</a> <StatusPill status={eval_run.status} />
+            {% if eval_run.summary.get("total") %}total <strong class="mono-text">{{ "%.3f"|format(eval_run.summary.total.total.mean) }}</strong>{% endif %}
+        </p>
+        {% endif %}
+        {% if can_promote %}
+        <form method="post" action="{{ url('optimization:detail', id=run.id) }}">
+            <button type="submit" class="button button-primary">Promote {{ run.candidate.version }}</button>
+            <span class="hint">Makes it the Docs app's active {{ run.language }}/llm prompt, with the dev-set scores as evidence.</span>
+        </form>
+        {% elif run.candidate.status == "active" %}
+        <p class="form-success">This candidate is the active prompt.</p>
+        {% else %}
+        <p class="hint">Promote becomes available when the dev-set eval finishes.</p>
+        {% endif %}
+    </section>
+    {% endif %}
+
+    {% if run.trial_log %}
+    <section class="card" aria-labelledby="log-heading">
+        <h2 class="card-title" id="log-heading">Trial log</h2>
+        <pre class="source-view"><code>{% for line in run.trial_log %}{{ line }}
+{% endfor %}</code></pre>
+    </section>
+    {% endif %}
+</main>
+{% endblock %}

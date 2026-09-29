@@ -18,7 +18,7 @@ The project is being reworked into two Plain apps that share one Postgres databa
 | App | Role |
 | --- | --- |
 | **Docs app** (`docs_app/`) | Generates and shows documentation pages. This is everything described in [Features](#features). |
-| **Tuning app** (`tuning_app/`) | Evaluates and tunes the Docs app through a web UI. It has a dashboard, model management, prompt versions with promotion and rollback, gold sets, eval runs with every metric, results and run comparison, the Settings page (trace backends and the default judge) and the shared trace viewer; DSPy optimization arrives later in R5. |
+| **Tuning app** (`tuning_app/`) | Evaluates and tunes the Docs app through a web UI. It has a dashboard, model management, prompt versions with promotion and rollback, gold sets, eval runs with every metric, results and run comparison, DSPy optimization runs, the Settings page (trace backends and the default judge) and the shared trace viewer. |
 
 The shared `d2u` library (`shared/`) holds the contracts, parsers, telemetry, trace store and design system. The apps may later merge into one app with a Tuning section.
 
@@ -29,7 +29,7 @@ The shared `d2u` library (`shared/`) holds the contracts, parsers, telemetry, tr
 | **R2** | Direct LiteLLM generation in the Docs app, model and prompt registry, 1 MB input cap, DSPy removed from the Docs app | Done |
 | **R3** | Trace backend selectable in the UI | Done |
 | **R4** | Tuning app: models, gold sets, evals and metrics, run comparison | Done |
-| **R5** | Tuning app: DSPy optimization and prompt promotion | In progress (R5a, prompt versions: done) |
+| **R5** | Tuning app: DSPy optimization and prompt promotion | In progress (R5a prompt versions, R5b optimization: done) |
 | **R6** | Containers for both apps, CI, docs | Planned |
 
 Models and prompt versions are managed in the Tuning app (see [Models and prompt versions](#models-and-prompt-versions)). Where the code differs from the spec, see [Development Status](#development-status).
@@ -342,9 +342,16 @@ The Docs app always uses the active prompt version for the input's language and 
 3. **Promote** makes a version active; the previous active version becomes a candidate. Optionally choose one of the version's eval runs, and its dev-set means are copied onto the version as the scores that justified promotion. The Docs app uses the new version from its next generation.
 4. **Roll back to …** on the Prompts page restores the version the latest promotion replaced, in one click. Every promotion and rollback is kept in the version's promotion history.
 
-DSPy optimization, which produces candidate versions automatically, arrives later in R5.
+### 13. Optimize a prompt with DSPy
 
-### 13. Switch themes
+1. On **Optimization**, click **New optimization run**. Choose the base prompt version (an `llm` version), a gold set of the same language with approved train and dev examples, the task model, the judge and an optimizer: BootstrapFewShot, BootstrapFewShotWithRandomSearch, MIPROv2 or COPRO, each with its parameters (defaults from SPEC §9.4).
+2. The Tuning app's worker wraps the base prompt's instructions and examples in a DSPy program and runs the optimizer on the train split. Its objective is the eval metric itself: each trial's page goes through the Docs app's conversion, the judge and the same scoring as eval runs.
+3. The best program's instructions and demos become a candidate version (`opt-<run>`, source `optimization:<run>`), and an eval run of it on the dev split starts automatically, through the production path. The run page shows the stage, the optimizer's trial log, a diff against the base version and the eval's scores.
+4. When the eval has finished, **Promote** makes the candidate active, with the dev-set scores as its evidence. It can be rolled back like any promotion.
+
+MIPROv2 needs optuna, which isn't installed by default: `uv sync --all-packages --group optimize`. COPRO varies the temperature, so it's refused for models that don't accept one (such as Gemini 3). Every trial calls the task and judge models, so runs with real models cost money.
+
+### 14. Switch themes
 
 Click **Toggle theme** in the header. The choice is remembered in your browser. Exported pages follow the reader's system setting.
 
@@ -384,6 +391,8 @@ docs-to-ui/
 │   │   ├── models_ui/           Model registry: list, add, edit, Test connection, activate
 │   │   ├── prompts/             Prompt versions: drafts, import and export, diff, promote, roll back
 │   │   ├── goldsets/            Gold sets: examples, form editor, seeding, imports, starter inputs
+│   │   ├── optimization/        DSPy program, optimizers, objective and LM (Plain-free), runs,
+│   │   │                        OptimizationRunJob, DSPy tracing
 │   │   ├── evals/               Eval runs, metrics, diffs and comparison (Plain-free), metric
 │   │   │                        versions, results and comparison pages, EvalRunJob
 │   │   └── settings_ui/         Settings page: trace backends, default judge
@@ -461,7 +470,7 @@ Evals always run the production code path (`d2u.generation`): each example goes 
 - **Component accuracy**: operation F1 by derived ID, then parameter names, locations, types, required flags, defaults, returns, signatures and groups of matched operations, as a weighted mean.
 - **Coverage**, **example validity** and **prose quality** as in SPEC §9.5. An output that fails or doesn't validate scores 0 on everything.
 
-Examples run in worker threads that do no database work; the job's thread stores each result. Every span of a run carries `docs.eval_run_id`, which the native store indexes and the trace list filters on. DSPy will only search for better prompts (R5), which reach the Docs app as plain prompt versions.
+Examples run in worker threads that do no database work; the job's thread stores each result. Every span of a run carries `docs.eval_run_id`, which the native store indexes and the trace list filters on. DSPy only searches for better prompts: an optimization run wraps a prompt version in one `dspy.Predict` whose signature mirrors the Docs app's call (formatted files in, `GeneratedPage` out), and exports the best program's instructions and demos as a plain prompt version. Real models reach DSPy as `dspy.LM` with the registry's settings (keys are still resolved only by `d2u.generation`); the fake model becomes a `DummyLM` answering from the same fixtures. `openinference-instrumentation-dspy` traces DSPy's modules in the Tuning app only.
 
 ## Code Quality
 
@@ -534,24 +543,28 @@ tests/docs_app/            Docs app: presentation, sanitizer, job states and fai
                            wiring (one trace ID), runtime backend switching, read-only selection
 tests/tuning_app/          Tuning app skeleton, Settings page, model registry and Test connection,
                            job queues, prompt versions (drafts, diff, promotion, rollback),
-                           gold sets and the expected-page editor, every metric,
+                           gold sets and the expected-page editor, optimizers, program export,
+                           the DSPy objective, optimization runs, every metric,
                            summaries, page diffs, run comparison, eval runs (states, failures, judge
                            errors, spans), result and comparison pages, dashboard, metric versions
 tests/e2e/                 Paste, zip upload, progress, failure and retry, trace viewer,
                            example tabs and copy, feedback, exports opened from disk (docs/);
                            switching trace backends, adding and testing a model, curating
                            and seeding gold examples, running, inspecting and comparing evals,
-                           promoting a prompt the Docs app then uses, and rolling it back (tuning/)
+                           promoting a prompt the Docs app then uses, and rolling it back,
+                           optimizing, evaluating and promoting a candidate (tuning/)
 tests/fixtures/            OpenAPI (single and multi-file), a Python package, fake-model responses,
                            and each adapter's contract.json
 ```
 
 ## Development Status
 
-v6 (milestones M1–M5) is complete, and v7 is in progress on the `redesign/v7` branch: R1 (the workspace restructure), R2 (direct LLM generation and the registry), R3 (trace backends chosen in the UI) and R4 (the Tuning app's models, gold sets, evals, results and comparison) are done; R5 is in progress (R5a, prompt versions, is done); R6 is planned. See the milestone table in [About This Project](#about-this-project) and `SPEC.md` §18.
+v6 (milestones M1–M5) is complete, and v7 is in progress on the `redesign/v7` branch: R1 (the workspace restructure), R2 (direct LLM generation and the registry), R3 (trace backends chosen in the UI) and R4 (the Tuning app's models, gold sets, evals, results and comparison) are done; R5 is in progress (R5a prompt versions and R5b optimization are done; R5c, feedback import and `evals.yml`, is next); R6 is planned. See the milestone table in [About This Project](#about-this-project) and `SPEC.md` §18.
 
 Known gaps and deliberate differences from `SPEC.md`:
 
+- **The trial log includes DSPy's printed output.** BootstrapFewShot reports progress with `print` rather than logging, so the run captures standard output during the search (safe because Plain's worker runs one job per process).
+- **COPRO is refused for models without a temperature** (for example Gemini 3), because it samples candidate instructions at varying temperatures and Gemini 3 models must never receive one.
 - **Prompt versions can be exported** as JSON (**Download JSON**), in the format **Import** reads. SPEC §8 names import only; export makes versions round-trip.
 - **`PLAIN_TUNING_MAX_EVAL_CONCURRENCY` keeps its SPEC §16 name**, although it's defined by the `app.evals` package, whose other settings would be prefixed `EVALS_`.
 - **The faithfulness formula** (0.5 × deterministic + 0.5 × judge) and the default component weights inside component accuracy were chosen in review; SPEC §9.5 gives neither.

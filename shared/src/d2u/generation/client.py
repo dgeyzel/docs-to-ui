@@ -112,6 +112,11 @@ class FakeResponses:
             raise LLMConfigurationError(f"{path} must contain a JSON object")
         return cls(answers)
 
+    def items(self) -> list[tuple[str, Any]]:
+        """Every fixture key and its answer, in file order."""
+        # Any: fixture answers are arbitrary JSON, validated by their callers.
+        return list(self._answers.items())
+
     def answer(self, messages: list[Message]) -> str:
         """The fixture answer for these messages."""
         final = next(
@@ -140,6 +145,32 @@ def api_key_is_set(model: ModelSpec) -> bool:
     Only presence is reported; the key itself never leaves this module.
     """
     return not model.api_key_env or bool(os.environ.get(model.api_key_env))
+
+
+def litellm_request_kwargs(model: ModelSpec) -> dict[str, Any]:
+    """The LiteLLM keyword arguments for a registered (non-fake) model.
+
+    For callers that hand a model to another LiteLLM user, such as DSPy's LM
+    in the Tuning app. The key is resolved here, so it is still read only by
+    this module.
+
+    Raises:
+        LLMConfigurationError: Bad parameters, a missing key, or the fake model.
+    """
+    if model.litellm_model == FAKE_MODEL:
+        raise LLMConfigurationError("The fake model has no LiteLLM settings.")
+    check_params(model.litellm_model, model.params)
+    kwargs: dict[str, Any] = {"model": model.litellm_model, **dict(model.params)}
+    if model.api_key_env:
+        key = os.environ.get(model.api_key_env)
+        if not key:
+            raise LLMConfigurationError(
+                f"Environment variable {model.api_key_env} is not set."
+            )
+        kwargs["api_key"] = key
+    if model.api_base:
+        kwargs["api_base"] = model.api_base
+    return kwargs
 
 
 def check_params(litellm_model: str, params: Mapping[str, Any]) -> None:
