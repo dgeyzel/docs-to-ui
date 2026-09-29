@@ -65,6 +65,43 @@
         {% endif %}
     </section>
 
+    <section class="card" aria-labelledby="import-feedback-heading">
+        <h2 class="card-title" id="import-feedback-heading">Import from feedback</h2>
+        <p class="hint">Recent 👎 feedback with a correction on finished {{ gold_set.language }} generations. Importing copies the generation's input and page as a draft and keeps the correction as the example's notes, for you to apply in the editor.</p>
+        {% if feedback %}
+        <div class="table-scroll">
+            <table class="data-table">
+                <thead>
+                    <tr><th scope="col">Generation</th><th scope="col">About</th><th scope="col">Correction</th><th scope="col">Given</th><th scope="col"><span class="visually-hidden">Import</span></th></tr>
+                </thead>
+                <tbody>
+                    {% for item in feedback %}
+                    <tr>
+                        <td>#{{ item.generation.id }} {{ item.generation.display_name }}</td>
+                        <td class="mono-text">{{ item.operation_id or "the page" }}</td>
+                        <td>{{ item.comment }}</td>
+                        <td class="meta-text">{{ localtime(item.created_at).strftime("%b %d, %H:%M") }}</td>
+                        <td>
+                            {% if ("feedback:" ~ item.id) in imported %}
+                            <span class="hint">Imported</span>
+                            {% else %}
+                            <form method="post" action="{{ url('goldsets:detail', id=gold_set.id) }}">
+                                <input type="hidden" name="form" value="import_feedback">
+                                <input type="hidden" name="feedback" value="{{ item.id }}">
+                                <button type="submit" class="button button-secondary">Import feedback {{ item.id }}</button>
+                            </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="empty-state">No 👎 feedback with a correction on {{ gold_set.language }} pages yet.</p>
+        {% endif %}
+    </section>
+
     <section class="card" aria-labelledby="import-generation-heading">
         <h2 class="card-title" id="import-generation-heading">Import a Docs app generation</h2>
         <p class="hint">Recent finished {{ gold_set.language }} generations. Importing copies the input and the generated page as a draft example.</p>

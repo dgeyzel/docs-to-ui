@@ -243,7 +243,7 @@ Unit tests mirror the package structure. Integration and E2E tests are grouped b
 ### 8.3 No real LLMs, no internet
 - Tests **MUST** use the fake model (`litellm_model = "fake"`), which answers from fixtures in `tests/fixtures/`. DSPy code in the Tuning app is tested with `DummyLM`.
 - Tests **MUST NOT** reach the internet. Enforce this with `pytest-socket`, allowing only the database host.
-- Real-model evaluation runs only when the user starts it: from the Tuning app's UI, or through `evals.yml`.
+- Real-model evaluation runs only when the user starts it, from the Tuning app's UI.
 
 ### 8.4 Style
 - Tests are plain `pytest` functions. No `unittest.TestCase`.

@@ -11,7 +11,7 @@ from d2u.generation.runner import generate_for_bundle
 from d2u.generation.strategies import GenerationConfig
 from d2u.generations.fakes import fake_responses
 from d2u.generations.inputs import available_adapters, prepare_raw_input
-from d2u.generations.models import Generation, GenerationStatus, InputOrigin
+from d2u.generations.models import Feedback, Generation, GenerationStatus, InputOrigin
 from d2u.registry.lookups import require_active_prompt
 from d2u.registry.models import ModelConfig
 from d2u.schemas.docpage import ApiSurface, DocPage, Overview
@@ -236,8 +236,17 @@ def content_hash(gold_set: GoldSet) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def import_generation(gold_set: GoldSet, generation: Generation) -> GoldExample:
+def import_generation(
+    gold_set: GoldSet,
+    generation: Generation,
+    *,
+    source: str = "",
+    notes: str = "",
+    change: str = "",
+) -> GoldExample:
     """A draft example from a finished Docs app generation: its input and page.
+
+    `source` and `change` default to naming the generation.
 
     Raises:
         GoldSetError: The generation didn't succeed or is in another language.
@@ -263,8 +272,51 @@ def import_generation(gold_set: GoldSet, generation: Generation) -> GoldExample:
         gold_set,
         gold_input=gold_input,
         expected=DocPage.model_validate(generation.doc_json),
-        source=f"generation:{generation.id}",
-        change=f"Imported from generation {generation.id}",
+        source=source or f"generation:{generation.id}",
+        notes=notes,
+        change=change or f"Imported from generation {generation.id}",
+    )
+
+
+def correctable_feedback(gold_set: GoldSet, *, limit: int) -> list[Feedback]:
+    """Recent 👎 feedback with a correction, on finished generations in the set's language."""
+    return list(
+        Feedback.query.filter(
+            score=-1,
+            generation__status=GenerationStatus.SUCCEEDED.value,
+            generation__language=gold_set.language,
+        )
+        .exclude(comment="")
+        .join("generation")
+        .order_by("-created_at")[:limit]
+    )
+
+
+def feedback_note(feedback: Feedback) -> str:
+    """The correction as an example note, saying what it was about."""
+    subject = (
+        f"operation {feedback.operation_id}" if feedback.operation_id else "the page"
+    )
+    return f"👎 feedback on {subject}: {feedback.comment}"
+
+
+def import_feedback(gold_set: GoldSet, feedback: Feedback) -> GoldExample:
+    """A draft example from 👎 feedback: the generation's input and page, the
+    correction kept as a note for the reviewer (SPEC §9.2).
+
+    Raises:
+        GoldSetError: The feedback isn't a 👎 with a correction, or its
+            generation can't be imported into this set.
+        InputError: The generation's stored input can't be read again.
+    """
+    if feedback.score != -1 or not feedback.comment.strip():
+        raise GoldSetError("Only 👎 feedback with a correction can be imported.")
+    return import_generation(
+        gold_set,
+        feedback.generation,
+        source=f"feedback:{feedback.id}",
+        notes=feedback_note(feedback),
+        change=f"Imported from feedback {feedback.id}",
     )
 
 

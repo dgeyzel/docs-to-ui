@@ -2,7 +2,7 @@ import json
 from io import BytesIO
 
 import pytest
-from d2u.generations.models import Generation
+from d2u.generations.models import Feedback, Generation
 from d2u.registry.models import ModelConfig
 from d2u.schemas.docpage import DocPage
 from plain.jobs.models import JobRequest
@@ -492,3 +492,74 @@ def test_examples_of_another_set_are_not_found() -> None:
         Client().get(f"/tuning/goldsets/{other.id}/examples/{example.id}").status_code
         == 404
     )
+
+
+def give_feedback(
+    generation: Generation,
+    *,
+    score: int = -1,
+    comment: str = "Wrong limit.",
+    operation_id: str = "GET /pets",
+) -> Feedback:
+    feedback = Feedback(
+        generation=generation, operation_id=operation_id, score=score, comment=comment
+    )
+    feedback.create()
+    return feedback
+
+
+def test_thumbs_down_feedback_with_a_correction_imports_as_a_draft() -> None:
+    gold_set = make_set()
+    generation = succeeded_generation()
+    feedback = give_feedback(generation)
+
+    listed = Client().get(f"/tuning/goldsets/{gold_set.id}").content.decode()
+    response = Client().post(
+        f"/tuning/goldsets/{gold_set.id}",
+        data={"form": "import_feedback", "feedback": str(feedback.id)},
+    )
+
+    example = only_example(gold_set)
+    assert "Wrong limit." in listed
+    assert response.headers["Location"] == f"{example_url(example)}?message=created"
+    assert (example.status, example.source) == ("draft", f"feedback:{feedback.id}")
+    assert example.notes == "👎 feedback on operation GET /pets: Wrong limit."
+    assert example.expected == generation.doc_json
+    assert GoldExampleRevision.query.get(example=example).change == (
+        f"Imported from feedback {feedback.id}"
+    )
+    assert (
+        "Imported" in Client().get(f"/tuning/goldsets/{gold_set.id}").content.decode()
+    )
+
+
+def test_only_thumbs_down_feedback_with_a_correction_is_offered() -> None:
+    gold_set = make_set()
+    generation = succeeded_generation()
+    give_feedback(generation, score=1, comment="Great.")
+    give_feedback(generation, comment="")
+    page_feedback = give_feedback(generation, comment="Title is off.", operation_id="")
+
+    html = Client().get(f"/tuning/goldsets/{gold_set.id}").content.decode()
+
+    assert "Great." not in html
+    assert f"Import feedback {page_feedback.id}" in html
+    assert html.count("Import feedback ") == 1
+
+
+@pytest.mark.parametrize(("score", "comment"), [(1, "Nice."), (-1, "  ")])
+def test_other_feedback_cannot_be_imported(score: int, comment: str) -> None:
+    gold_set = make_set()
+    feedback = give_feedback(succeeded_generation(), score=score, comment=comment)
+
+    response = Client().post(
+        f"/tuning/goldsets/{gold_set.id}",
+        data={"form": "import_feedback", "feedback": str(feedback.id)},
+    )
+
+    assert response.status_code == 422
+    assert (
+        "Only 👎 feedback with a correction can be imported."
+        in response.content.decode()
+    )
+    assert not GoldExample.query.filter(gold_set=gold_set).exists()

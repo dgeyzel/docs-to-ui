@@ -29,7 +29,7 @@ The shared `d2u` library (`shared/`) holds the contracts, parsers, telemetry, tr
 | **R2** | Direct LiteLLM generation in the Docs app, model and prompt registry, 1 MB input cap, DSPy removed from the Docs app | Done |
 | **R3** | Trace backend selectable in the UI | Done |
 | **R4** | Tuning app: models, gold sets, evals and metrics, run comparison | Done |
-| **R5** | Tuning app: DSPy optimization and prompt promotion | In progress (R5a prompt versions, R5b optimization: done) |
+| **R5** | Tuning app: DSPy optimization and prompt promotion | Done |
 | **R6** | Containers for both apps, CI, docs | Planned |
 
 Models and prompt versions are managed in the Tuning app (see [Models and prompt versions](#models-and-prompt-versions)). Where the code differs from the spec, see [Development Status](#development-status).
@@ -319,6 +319,7 @@ A gold set is a named collection of examples for one language: an input, exactly
 3. Edit the expected page in the form editor: operations, parameters (name, location, type, required, default, description), summaries, descriptions and code examples. **Add** and **Remove** buttons change rows without saving; **Save expected page** validates everything. Operation and parameter IDs are derived from the method and path, or the qualified name, never typed in.
 4. Set the split (train, dev or test) and reviewer notes, then **Approve**. Every change is kept in the example's history. On the set page, select examples and use **Assign split** to move many at once.
 5. **Import a Docs app generation** copies a finished generation's input and page as a draft example.
+6. **Import from feedback** lists 👎 feedback with a correction on finished generations in the set's language. Importing one creates a draft from the generation's input and page, with the correction (and the operation it was about) as the example's notes, so you can apply it in the editor before approving.
 
 The set page shows a content hash of its approved examples; eval runs record it, so results can be tied to the exact examples they were measured on.
 
@@ -406,7 +407,7 @@ docs-to-ui/
 │   ├── docs_app/                Docs app unit and integration tests
 │   ├── tuning_app/              Tuning app and pipeline tests
 │   └── e2e/                     Playwright journeys: docs/ (Docs app), tuning/ (Tuning app, cross-app)
-├── .github/workflows/           ci.yml (every push; evals.yml returns in R5)
+├── .github/workflows/           ci.yml (every push)
 ├── Dockerfile                   base, test and prod stages
 ├── docker-compose.yml           Postgres for development
 ├── docker-compose.test.yml      The containerized suite
@@ -543,7 +544,7 @@ tests/docs_app/            Docs app: presentation, sanitizer, job states and fai
                            wiring (one trace ID), runtime backend switching, read-only selection
 tests/tuning_app/          Tuning app skeleton, Settings page, model registry and Test connection,
                            job queues, prompt versions (drafts, diff, promotion, rollback),
-                           gold sets and the expected-page editor, optimizers, program export,
+                           gold sets, feedback import and the expected-page editor, optimizers, program export,
                            the DSPy objective, optimization runs, every metric,
                            summaries, page diffs, run comparison, eval runs (states, failures, judge
                            errors, spans), result and comparison pages, dashboard, metric versions
@@ -559,12 +560,13 @@ tests/fixtures/            OpenAPI (single and multi-file), a Python package, fa
 
 ## Development Status
 
-v6 (milestones M1–M5) is complete, and v7 is in progress on the `redesign/v7` branch: R1 (the workspace restructure), R2 (direct LLM generation and the registry), R3 (trace backends chosen in the UI) and R4 (the Tuning app's models, gold sets, evals, results and comparison) are done; R5 is in progress (R5a prompt versions and R5b optimization are done; R5c, feedback import and `evals.yml`, is next); R6 is planned. See the milestone table in [About This Project](#about-this-project) and `SPEC.md` §18.
+v6 (milestones M1–M5) is complete, and v7 is in progress on the `redesign/v7` branch: R1 (the workspace restructure), R2 (direct LLM generation and the registry), R3 (trace backends chosen in the UI), R4 (the Tuning app's models, gold sets, evals, results and comparison) and R5 (prompt versions, DSPy optimization and feedback import) are done; R6 is planned. See the milestone table in [About This Project](#about-this-project) and `SPEC.md` §18.
 
 Known gaps and deliberate differences from `SPEC.md`:
 
 - **The trial log includes DSPy's printed output.** BootstrapFewShot reports progress with `print` rather than logging, so the run captures standard output during the search (safe because Plain's worker runs one job per process).
 - **COPRO is refused for models without a temperature** (for example Gemini 3), because it samples candidate instructions at varying temperatures and Gemini 3 models must never receive one.
+- **No `evals.yml`.** Real-model evals run only from the Tuning app's UI; the spec's manual workflow was dropped in review, since a CI database starts empty and the app is local-only.
 - **Prompt versions can be exported** as JSON (**Download JSON**), in the format **Import** reads. SPEC §8 names import only; export makes versions round-trip.
 - **`PLAIN_TUNING_MAX_EVAL_CONCURRENCY` keeps its SPEC §16 name**, although it's defined by the `app.evals` package, whose other settings would be prefixed `EVALS_`.
 - **The faithfulness formula** (0.5 × deterministic + 0.5 × judge) and the default component weights inside component accuracy were chosen in review; SPEC §9.5 gives neither.

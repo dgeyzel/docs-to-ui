@@ -549,17 +549,17 @@ Removed from v6:
 | E2E | Docs app: generate, poll, page, export, feedback. Tuning app: add a model, curate a gold example, run an eval, compare runs, optimize, promote, then see the Docs app use it. Switch trace backends in the UI. | Fake, both workers running | Every push |
 | Dependency guard | No shared or Docs app module imports `dspy`, and booting the Docs app loads none of it; the production image build fails if `dspy` is importable | — | Every push |
 | Design sync | `tokens.css` copy matches `design/` | — | Every push |
-| Real-model evals | Eval and optimization runs against real models | Real | Manual (Tuning app UI, or `evals.yml`) |
+| Real-model evals | Eval and optimization runs against real models | Real | Manual (Tuning app UI) |
 
 ## 18. Milestones
 
 | | Scope | Proves |
 |---|---|---|
 | **R1** | Restructure into the uv workspace (`shared`, `docs_app`, `tuning_app` skeleton). Move v6 code into `d2u` and `docs_app` with no behavior change, and keep every test green. Because behavior doesn't change, the Docs app still generates with DSPy during R1: the v6 DSPy program code lives temporarily in `d2u.llm` (and `dspy` in `d2u`'s dependencies) until R2 removes it. | Layout |
-| **R2** | Shared registry (`ModelConfig`, `PromptVersion`, `RuntimeSettings`) with seeds. Direct LiteLLM generation (`GeneratedPage`, ID derivation, splitting, 1 MB cap) in the Docs app. `hybrid` and `parser` strategies on the direct client. DSPy removed from the Docs app and the shared library. The v6 pipeline's CLI, program artifacts and `evals.yml` are removed; its datasets and metric code stay in the Tuning app for R4, and `evals.yml` returns in R5. | Direct generation |
+| **R2** | Shared registry (`ModelConfig`, `PromptVersion`, `RuntimeSettings`) with seeds. Direct LiteLLM generation (`GeneratedPage`, ID derivation, splitting, 1 MB cap) in the Docs app. `hybrid` and `parser` strategies on the direct client. DSPy removed from the Docs app and the shared library. The v6 pipeline's CLI, program artifacts and `evals.yml` are removed; its datasets and metric code stay in the Tuning app for R4, and `evals.yml` is not brought back: real-model evals run from the Tuning app's UI. | Direct generation |
 | **R3** | Trace backend selection in the UI with the routing processor. Shared trace viewer in both apps. | Selectable telemetry |
 | **R4** | Tuning app: model management, gold sets (create, seed, import, edit, approve, split), eval runs with every §9.5 metric, results and comparison UI. | Measurable quality |
-| **R5** | Tuning app: optimization runs with configurable DSPy optimizers, candidate export, promotion and rollback to the Docs app, feedback-to-gold import, `evals.yml`. | Tuning loop |
+| **R5** | Tuning app: optimization runs with configurable DSPy optimizers, candidate export, promotion and rollback to the Docs app, feedback-to-gold import. | Tuning loop |
 | **R6** | Containers for both apps and workers, CI, README and docs, UAT plan update. | Ship |
 
 ## 19. Questions Resolved in Review
@@ -587,7 +587,7 @@ Unchanged from v6: the repository and all tooling run in WSL on the Linux filesy
 - Runtime settings (active model, prompts, judge, trace backends) change only in the Tuning app, whose routes all live under `/tuning/`. The seeded default judge is Claude.
 - Faithfulness and component accuracy are required metrics against curated gold sets.
 - The trace backend (native and/or Langfuse) is selectable in the UI without a restart. `PLAIN_TELEMETRY_EXPORT_ENABLED` turns tracing off per process (tests, builds).
-- Removed: DSPy program artifacts in the web app, `dspy_pipeline/` as a CLI-only tool, `PLAIN_LLM_*` and `PLAIN_TELEMETRY_BACKENDS`.
+- Removed: DSPy program artifacts in the web app, `dspy_pipeline/` as a CLI-only tool, `evals.yml` (real-model evals run from the Tuning app's UI), `PLAIN_LLM_*` and `PLAIN_TELEMETRY_BACKENDS`.
 
 **v6.3**
 - Recorded the development environment: the repository and all tooling in WSL, with the browser, Docker Desktop and OpenDesign on Windows.

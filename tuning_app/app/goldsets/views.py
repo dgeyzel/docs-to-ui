@@ -1,7 +1,7 @@
 from typing import Any
 
 from d2u.generation.convert import generated_to_docpage
-from d2u.generations.models import Generation, GenerationStatus
+from d2u.generations.models import Feedback, Generation, GenerationStatus
 from d2u.schemas.gold import GOLD_SPLITS
 from d2u.sources.exceptions import InputError
 from plain.forms import BaseForm, ValidationError
@@ -34,9 +34,11 @@ from app.goldsets.models import (
 from app.goldsets.services import (
     assign_split,
     content_hash,
+    correctable_feedback,
     create_example,
     describe_input_error,
     empty_page,
+    import_feedback,
     import_generation,
     import_gold_set,
     line_counts,
@@ -194,14 +196,20 @@ class GoldSetDetailView(TemplateView):
             ).order_by("-created_at")[:RECENT_GENERATIONS_LIMIT]
         )
         context["imported"] = {example.source for example in examples}
+        context["feedback"] = correctable_feedback(
+            gold_set, limit=RECENT_GENERATIONS_LIMIT
+        )
         context["message"] = _message(self)
         context["error"] = ""
         return context
 
     def post(self) -> Response:
         gold_set = _get_set(self.url_kwargs)
-        if self.request.form_data.get("form", "") == "import_generation":
+        action = self.request.form_data.get("form", "")
+        if action == "import_generation":
             return self._import_generation(gold_set)
+        if action == "import_feedback":
+            return self._import_feedback(gold_set)
         ids = list(
             GoldExample.query.filter(gold_set=gold_set).values_list("id", flat=True)
         )
@@ -222,6 +230,17 @@ class GoldSetDetailView(TemplateView):
             return self.render(error="Choose a generation to import.", status_code=422)
         try:
             example = import_generation(gold_set, generation)
+        except (GoldSetError, InputError) as exc:
+            return self.render(error=_error_text(exc), status_code=422)
+        return _redirect(_example_url(example), "created")
+
+    def _import_feedback(self, gold_set: GoldSet) -> Response:
+        raw_id = str(self.request.form_data.get("feedback", ""))
+        feedback = Feedback.query.get_or_none(int(raw_id)) if raw_id.isdigit() else None
+        if feedback is None:
+            return self.render(error="Choose feedback to import.", status_code=422)
+        try:
+            example = import_feedback(gold_set, feedback)
         except (GoldSetError, InputError) as exc:
             return self.render(error=_error_text(exc), status_code=422)
         return _redirect(_example_url(example), "created")
