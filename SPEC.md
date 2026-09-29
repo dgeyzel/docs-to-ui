@@ -53,7 +53,7 @@ This shared code lives in one library, `d2u`, so the Tuning app evaluates exactl
 **Non-goals**
 - Multi-user support, authentication or sharing. Both apps bind to `127.0.0.1` only (the production container exception is in `AGENTS.md` §0).
 - Hosting generated docs. Export produces a file; hosting is the user's choice.
-- Executing or importing the user's code. Python is parsed with `ast`; archives are read in memory and never extracted to disk.
+- Executing or importing the user's code. Python is only ever parsed with `ast` (for the syntax check, and for structure in the `hybrid` and `parser` strategies); archives are read in memory and never extracted to disk.
 - LLM-produced HTML, CSS or JS. The LLM returns Pydantic types; templates render them.
 - DSPy in the Docs app. Tuned prompts reach the Docs app as plain text and example pairs, not as DSPy programs.
 - Mixed-language inputs. A generation documents one language; other files are listed as skipped.
@@ -554,14 +554,37 @@ Removed from v6:
 
 ## 18. Milestones
 
-| | Scope | Proves |
-|---|---|---|
-| **R1** | Restructure into the uv workspace (`shared`, `docs_app`, `tuning_app` skeleton). Move v6 code into `d2u` and `docs_app` with no behavior change, and keep every test green. Because behavior doesn't change, the Docs app still generates with DSPy during R1: the v6 DSPy program code lives temporarily in `d2u.llm` (and `dspy` in `d2u`'s dependencies) until R2 removes it. | Layout |
-| **R2** | Shared registry (`ModelConfig`, `PromptVersion`, `RuntimeSettings`) with seeds. Direct LiteLLM generation (`GeneratedPage`, ID derivation, splitting, 1 MB cap) in the Docs app. `hybrid` and `parser` strategies on the direct client. DSPy removed from the Docs app and the shared library. The v6 pipeline's CLI, program artifacts and `evals.yml` are removed; its datasets and metric code stay in the Tuning app for R4, and `evals.yml` is not brought back: real-model evals run from the Tuning app's UI. | Direct generation |
-| **R3** | Trace backend selection in the UI with the routing processor. Shared trace viewer in both apps. | Selectable telemetry |
-| **R4** | Tuning app: model management, gold sets (create, seed, import, edit, approve, split), eval runs with every §9.5 metric, results and comparison UI. | Measurable quality |
-| **R5** | Tuning app: optimization runs with configurable DSPy optimizers, candidate export, promotion and rollback to the Docs app, feedback-to-gold import. | Tuning loop |
-| **R6** | Containers for both apps and workers, CI, README and docs, UAT plan update. | Ship |
+v6 (milestones M1–M5, the single-app version) is complete. All v7 milestones are done on branch `redesign/v7`.
+
+| | Scope | Proves | Status |
+|---|---|---|---|
+| **R1** | Restructure into the uv workspace (`shared`, `docs_app`, `tuning_app` skeleton). Move v6 code into `d2u` and `docs_app` with no behavior change, and keep every test green. Because behavior doesn't change, the Docs app still generates with DSPy during R1: the v6 DSPy program code lives temporarily in `d2u.llm` (and `dspy` in `d2u`'s dependencies) until R2 removes it. | Layout | Done |
+| **R2** | Shared registry (`ModelConfig`, `PromptVersion`, `RuntimeSettings`) with seeds. Direct LiteLLM generation (`GeneratedPage`, ID derivation, splitting, 1 MB cap) in the Docs app. `hybrid` and `parser` strategies on the direct client. DSPy removed from the Docs app and the shared library. The v6 pipeline's CLI, program artifacts and `evals.yml` are removed; its datasets and metric code stay in the Tuning app for R4, and `evals.yml` is not brought back: real-model evals run from the Tuning app's UI. | Direct generation | Done |
+| **R3** | Trace backend selection in the UI with the routing processor. Shared trace viewer in both apps. | Selectable telemetry | Done |
+| **R4** | Tuning app: model management, gold sets (create, seed, import, edit, approve, split), eval runs with every §9.5 metric, results and comparison UI. | Measurable quality | Done |
+| **R5** | Tuning app: optimization runs with configurable DSPy optimizers, candidate export, promotion and rollback to the Docs app, feedback-to-gold import. | Tuning loop | Done |
+| **R6** | Containers for both apps and workers, CI, README and docs, UAT plan update. | Ship | Done |
+
+### Implementation notes
+
+Known gaps and deliberate differences between the code and this spec, and decisions made during implementation:
+
+- **The trial log includes DSPy's printed output.** BootstrapFewShot reports progress with `print` rather than logging, so an optimization run captures standard output during the search (safe because Plain's worker runs one job per process).
+- **COPRO is refused for models without a temperature** (for example Gemini 3), because it samples candidate instructions at varying temperatures and Gemini 3 models must never receive one.
+- **No `evals.yml`.** Real-model evals run only from the Tuning app's UI; the manual workflow was dropped in review, since a CI database starts empty and the app is local-only.
+- **Prompt versions can be exported** as JSON, in the format Import reads. §8 names import only; export makes versions round-trip.
+- **`PLAIN_TUNING_MAX_EVAL_CONCURRENCY` keeps its §16 name**, although it's defined by the `app.evals` package, whose other settings would be prefixed `EVALS_`.
+- **The faithfulness formula** (0.5 × deterministic + 0.5 × judge) and the default component weights inside component accuracy were chosen in review and are recorded in §9.5.
+- **Gold examples store the model seed's state.** Seeding from a model runs as `SeedGoldExampleJob` (§14), and the example records whether it is pending, running or failed (§13).
+- **Connection test results are stored** in a Tuning-only `ModelTest` table (§13), so the model page can show the latest result after its job finishes.
+- **An extra telemetry setting.** `PLAIN_TELEMETRY_EXPORT_ENABLED` (§11.2, §16) lets the test suites and the image build turn tracing off now that `PLAIN_TELEMETRY_BACKENDS` is gone.
+- **Langfuse credentials are per process.** Each app reads the `LANGFUSE_*` variables from its own environment, so the Settings page can only check the Tuning app's. An app without them skips Langfuse even when it's selected, and says so on its pages.
+- **One shared development environment.** The uv workspace installs every member's dependencies into one `.venv`, so DSPy is installed there for the Tuning app. The Docs app never imports it (a test checks), and its production image contains only its own dependencies.
+- **`optuna` is opt-in in development.** It's in the Tuning app's `optimize` group: optuna brings numpy into the shared environment, and a half-imported numpy races with psycopg's numpy adapters when the Docs app's worker starts. Install it with `uv sync --all-packages --group optimize`. The Tuning app's production image includes it.
+- **No pre-commit hook.** Plain's hook runs `plain` from the repository root, where there is no app. The checks in `AGENTS.md` §1 are run instead.
+- **No `plain.toolbar`.** It depends on `plain-tailwind`, whose build hooks break `plain assets compile` and conflict with D5 (no Tailwind).
+- **Whole-page feedback** stores an empty `operation_id` instead of NULL, following Plain's rule against nullable text columns.
+- **URLs** follow Plain's default of no trailing slash (`/generations/1`, `/traces/<id>`).
 
 ## 19. Questions Resolved in Review
 

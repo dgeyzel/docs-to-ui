@@ -22,17 +22,7 @@ The project is two Plain apps that share one Postgres database and a common libr
 
 The shared `d2u` library (`shared/`) holds the contracts, parsers, telemetry, trace store and design system. The apps may later merge into one app with a Tuning section.
 
-| Milestone | Scope | Status |
-| --- | --- | --- |
-| v6 **M1–M5** | Single-app version: OpenAPI and Python input, DSPy enrichment, jobs, tracing, feedback, optimization pipeline, containers | Done |
-| **R1** | Restructure into a uv workspace (`shared`, `docs_app`, `tuning_app`) with no behavior change | Done |
-| **R2** | Direct LiteLLM generation in the Docs app, model and prompt registry, 1 MB input cap, DSPy removed from the Docs app | Done |
-| **R3** | Trace backend selectable in the UI | Done |
-| **R4** | Tuning app: models, gold sets, evals and metrics, run comparison | Done |
-| **R5** | Tuning app: DSPy optimization and prompt promotion | Done |
-| **R6** | Containers for both apps, CI, docs | Done |
-
-Models and prompt versions are managed in the Tuning app (see [Models and prompt versions](#models-and-prompt-versions)). Where the code differs from the spec, see [Development Status](#development-status).
+Models and prompt versions are managed in the Tuning app (see [Models and prompt versions](#models-and-prompt-versions)). Milestones, their status, and where the code deliberately differs from the spec are recorded in `SPEC.md` §18.
 
 ## Features
 
@@ -40,7 +30,7 @@ Models and prompt versions are managed in the Tuning app (see [Models and prompt
 
 - Paste text, or upload a single file or a `.zip` archive (up to 1 MB)
 - **OpenAPI** 3.0 and 3.1, in JSON or YAML, as one file or many files linked by relative `$ref`s
-- **Python** source, parsed with `ast` only: user code is never imported or run
+- **Python** source. Your code is never imported or run: it's checked for syntax with Python's `ast` and then read by the model (the `hybrid` and `parser` strategies extract the structure with `ast` instead). Source files are sent to the active model's provider.
 - The language is detected automatically, or you can choose it
 - For a zip with several OpenAPI entry files, choose one with the **Entry file** field
 - Generation runs in a background job with one direct LLM call. The page shows a live stage stepper (Bundle → Generate → Merge) and, for large inputs split into parts, part progress
@@ -575,29 +565,6 @@ tests/e2e/                 Paste, zip upload, progress, failure and retry, trace
 tests/fixtures/            OpenAPI (single and multi-file), a Python package, fake-model responses,
                            and each adapter's contract.json
 ```
-
-## Development Status
-
-v6 (milestones M1–M5) is complete, and v7 is complete on the `redesign/v7` branch: R1 (the workspace restructure), R2 (direct LLM generation and the registry), R3 (trace backends chosen in the UI), R4 (the Tuning app's models, gold sets, evals, results and comparison), R5 (prompt versions, DSPy optimization and feedback import) and R6 (containers for both apps, CI, docs and the UAT plan) are done. See the milestone table in [About This Project](#about-this-project) and `SPEC.md` §18.
-
-Known gaps and deliberate differences from `SPEC.md`:
-
-- **The trial log includes DSPy's printed output.** BootstrapFewShot reports progress with `print` rather than logging, so the run captures standard output during the search (safe because Plain's worker runs one job per process).
-- **COPRO is refused for models without a temperature** (for example Gemini 3), because it samples candidate instructions at varying temperatures and Gemini 3 models must never receive one.
-- **No `evals.yml`.** Real-model evals run only from the Tuning app's UI; the spec's manual workflow was dropped in review, since a CI database starts empty and the app is local-only.
-- **Prompt versions can be exported** as JSON (**Download JSON**), in the format **Import** reads. SPEC §8 names import only; export makes versions round-trip.
-- **`PLAIN_TUNING_MAX_EVAL_CONCURRENCY` keeps its SPEC §16 name**, although it's defined by the `app.evals` package, whose other settings would be prefixed `EVALS_`.
-- **The faithfulness formula** (0.5 × deterministic + 0.5 × judge) and the default component weights inside component accuracy were chosen in review; SPEC §9.5 gives neither.
-- **Gold examples store the model seed's state.** Seeding from a model runs as `SeedGoldExampleJob` (added to `SPEC.md` §14), and the example records whether it is pending, running or failed.
-- **Connection test results are stored** in a Tuning-only `ModelTest` table (added to `SPEC.md` §13), so the model page can show the latest result after its job finishes.
-- **An extra telemetry setting.** `PLAIN_TELEMETRY_EXPORT_ENABLED` (not in v7's first draft) lets the test suites and the image build turn tracing off now that `PLAIN_TELEMETRY_BACKENDS` is gone; `SPEC.md` §16 lists it.
-- **Langfuse credentials are per process.** Each app reads the `LANGFUSE_*` variables from its own environment, so the Settings page can only check the Tuning app's. An app without them skips Langfuse even when it's chosen, and says so on its pages.
-- **One shared development environment.** The uv workspace installs every member's dependencies into one `.venv`, so DSPy is installed there for the Tuning app. The Docs app never imports it (a test checks), and its production image contains only its own dependencies.
-- **`optuna` is opt-in.** It's in the Tuning app's `optimize` group: optuna brings numpy into the shared environment, and a half-imported numpy races with psycopg's numpy adapters when the Docs app's worker starts. Install it with `uv sync --all-packages --group optimize`.
-- **No pre-commit hook.** Plain's hook runs `plain` from the repository root, where there is no app. Run the checks in [Code Quality](#code-quality) instead.
-- **No `plain.toolbar`.** It depends on `plain-tailwind`, whose build hooks break `plain assets compile` and conflict with the decided "no Tailwind" rule.
-- **Whole-page feedback** stores an empty `operation_id` instead of NULL, following Plain's rule against nullable text columns.
-- **URLs** follow Plain's default of no trailing slash (`/generations/1`, `/traces/<id>`).
 
 ## Troubleshooting
 
