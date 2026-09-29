@@ -50,7 +50,7 @@ jobs:
         run: |
           uv run --directory docs_app plain preflight
           uv run --directory tuning_app plain preflight
-      - name: Shared library and Docs app tests (includes the artifact round-trip)
+      - name: Shared library and Docs app tests
         run: uv run --directory docs_app pytest
       - name: Tuning app tests
         run: uv run --directory tuning_app pytest
