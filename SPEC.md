@@ -1,6 +1,6 @@
 # Docs-to-UI: Architecture & Implementation Spec (v7)
 
-> **Status:** Accepted for implementation (branch `redesign/v7`). **[Decided]** marks settled decisions; **[Default]** marks proposed defaults that stand unless changed. §19 records the questions resolved in review.
+> **Status:** Implemented on branch `redesign/v7` (milestones R1–R6, §18). **[Decided]** marks settled decisions; **[Default]** marks proposed defaults that stand unless changed. §19 records the questions resolved in review.
 >
 > v7 replaces v6's single app, where DSPy ran inside the web app. The web app now calls the LLM directly, and a second app does evaluation and tuning with DSPy. What changed from v6 is summarized in §21.
 
@@ -488,9 +488,10 @@ docs-to-ui/
 │       ├── settings.py, urls.py
 │       └── generate/               # form, views, GenerateDocJob, export
 ├── tuning_app/                     # Plain project "tuning" (workspace member)
-│   ├── pyproject.toml              # depends on d2u and dspy
+│   ├── pyproject.toml              # depends on d2u, dspy and its OpenInference instrumentation
 │   └── app/
 │       ├── settings.py, urls.py
+│       ├── dashboard/              # active choices, latest scores, recent runs
 │       ├── models_ui/              # model registry screens, Test connection
 │       ├── settings_ui/            # runtime settings: trace backends, default judge
 │       ├── prompts/                # prompt versions, promotion

@@ -11,9 +11,9 @@ Docs-to-UI is built from two documents in this repository:
 
 The visual design comes from an [OpenDesign](https://github.com/nexu-io/open-design) design-system package in `design/docs-to-ui/`, produced from [`DESIGN_BRIEF.md`](DESIGN_BRIEF.md). The apps consume only its `tokens.css`.
 
-### Two apps, one database (SPEC v7, in progress)
+### Two apps, one database (SPEC v7)
 
-The project is being reworked into two Plain apps that share one Postgres database and a common library:
+The project is two Plain apps that share one Postgres database and a common library:
 
 | App | Role |
 | --- | --- |
@@ -30,7 +30,7 @@ The shared `d2u` library (`shared/`) holds the contracts, parsers, telemetry, tr
 | **R3** | Trace backend selectable in the UI | Done |
 | **R4** | Tuning app: models, gold sets, evals and metrics, run comparison | Done |
 | **R5** | Tuning app: DSPy optimization and prompt promotion | Done |
-| **R6** | Containers for both apps, CI, docs | Planned |
+| **R6** | Containers for both apps, CI, docs | Done |
 
 Models and prompt versions are managed in the Tuning app (see [Models and prompt versions](#models-and-prompt-versions)). Where the code differs from the spec, see [Development Status](#development-status).
 
@@ -68,14 +68,15 @@ Models and prompt versions are managed in the Tuning app (see [Models and prompt
 ### Feedback
 
 - 👍 / 👎 on the whole page or on any single operation, with an optional correction comment
-- Stored in the database, and mirrored to Langfuse as a score when that backend is active
-- `optimize.py export-feedback` turns 👎 feedback with comments into dataset candidates for review
+- Stored in the database, and mirrored to Langfuse as a score when that backend is selected
+- 👎 feedback with a correction can be imported into a Tuning app gold set as a draft example
 
 ### Tracing
 
 - Every request, job stage and LLM call is an OpenTelemetry span. Spans from the request, the job and the LLM calls share one trace ID
 - **Native backend:** spans stored in Postgres and shown in the in-app trace viewer (trace list, waterfall timeline, span details and a dedicated LLM call view with messages and token counts)
-- **Langfuse backend:** spans sent over OTLP and feedback sent as scores. Both backends can be active at once
+- **Langfuse backend:** spans sent over OTLP and feedback sent as scores
+- Native, Langfuse, both or neither: chosen on the Tuning app's Settings page, applied to both apps within 10 seconds without a restart
 - A summary strip on each generation page: LLM calls, total tokens, wall time and a **View trace** link
 - Spans older than 30 days are pruned daily
 
@@ -84,6 +85,15 @@ Models and prompt versions are managed in the Tuning app (see [Models and prompt
 - A shared registry of models (any LiteLLM model string, with its call parameters and the name of the environment variable holding its key) and prompt versions (instructions plus few-shot examples)
 - The Docs app always uses the active model and the active prompt version for the input's language; both are chosen in the Tuning app, and the generation page records which were used, with tokens and cost
 - Seeded defaults: Gemini 3.8 Flash as the generation model, Claude Sonnet 4.5 as the default judge, and a `baseline` prompt for each language and strategy
+
+### Evaluation and tuning (Tuning app)
+
+- **Models:** add and edit registry models, offered only the call parameters LiteLLM supports for each; Test connection; activate one for the Docs app
+- **Prompt versions:** drafts, a diff between versions, promotion with the eval scores that justify it, one-click rollback, JSON import and export
+- **Gold sets:** examples read exactly as the Docs app reads input, seeded from the parser or a model, or imported from generations, feedback or JSON; a form editor for the expected page; review, approval and train/dev/test splits
+- **Eval runs:** every approved example of a split generated through the Docs app's own code, judged by a second model and scored on faithfulness, component accuracy, coverage, example validity and prose quality, with confidence intervals, per-example diffs and run comparison
+- **Optimization:** DSPy (BootstrapFewShot, BootstrapFewShotWithRandomSearch, MIPROv2 or COPRO) searches for better instructions and examples; the result is a candidate prompt version, scored on the dev split before you promote it
+- **Dashboard and settings:** the active choices, the latest scores per language, recent runs, trace backends and the default judge
 
 ## Tech Stack
 
@@ -94,7 +104,7 @@ Models and prompt versions are managed in the Tuning app (see [Models and prompt
 - **Parsing:** PyYAML (`safe_load` semantics) for OpenAPI, Python's `ast` for Python, `zipfile` in memory for archives
 - **Rendering:** markdown-it-py with output sanitized by nh3
 - **Styling and scripts:** plain CSS with design-system custom properties (no Tailwind) and vanilla JavaScript
-- **Observability:** OpenTelemetry SDK, `openinference-instrumentation-litellm`, a raw-psycopg span exporter, and the Langfuse SDK and OTLP exporter
+- **Observability:** OpenTelemetry SDK, `openinference-instrumentation-litellm` (both apps) and `-dspy` (Tuning app), a raw-psycopg span exporter, and the Langfuse SDK and OTLP exporter
 - **Tooling:** a uv workspace, ruff and ty (through `plain code`), pytest, Playwright, Docker, GitHub Actions
 
 ## Requirements
@@ -103,7 +113,7 @@ Models and prompt versions are managed in the Tuning app (see [Models and prompt
 - Python 3.14 (uv installs it for you)
 - [uv](https://docs.astral.sh/uv/getting-started/installation/)
 - Docker with Docker Compose, for Postgres. On Windows, use Docker Desktop with the WSL2 backend.
-- A [Gemini API key](https://aistudio.google.com/apikey) for the seeded generation model, and an [Anthropic API key](https://console.anthropic.com/) for the seeded judge once evals arrive. Without keys you can still try the app with the fake model (see [Configuration](#configuration)).
+- A [Gemini API key](https://aistudio.google.com/apikey) for the seeded generation model, and an [Anthropic API key](https://console.anthropic.com/) for the seeded judge (used by eval and optimization runs). Without keys you can still try the app with the fake model (see [Configuration](#configuration)).
 
 The repository must live on the Linux filesystem (a path under `/home/`), not on a Windows drive such as `/mnt/c/`.
 
@@ -129,7 +139,7 @@ docker compose up -d --wait
 uv run --directory tuning_app plain postgres sync
 ```
 
-Put your provider keys in `docs_app/.env` (and in `tuning_app/.env` for evaluations):
+Put your provider keys in both `docs_app/.env` and `tuning_app/.env` (the Tuning app runs evals, optimization and Test connection):
 
 ```bash
 GEMINI_API_KEY=your-gemini-api-key
@@ -148,7 +158,7 @@ DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/docs_to_ui
 GEMINI_API_KEY=your-gemini-api-key
 ```
 
-To try the app without a provider key, point the fake model at the test fixtures and make it active (see [Models and prompt versions](#models-and-prompt-versions)). It answers from fixtures written for the test inputs, so other inputs fail with a validation error:
+To try the apps without a provider key, set this in both `.env` files, then on the Tuning app's **Models** page add a model with the LiteLLM model string `fake` and activate it. It answers from fixtures written for the test inputs (such as `tests/fixtures/openapi/petstore-3.0.yaml`), so other inputs fail with a validation error:
 
 ```bash
 PLAIN_GENERATIONS_FAKE_RESPONSES=tests/fixtures/llm/fake.json
@@ -210,40 +220,48 @@ A model's parameters are passed to LiteLLM as given, except that Gemini 3 models
 
 With `PLAIN_DEBUG=true` there is no build step: assets are served straight from `shared/src/d2u/ui/assets/`.
 
-The `Dockerfile` has three stages:
+The `Dockerfile` has four stages:
 
 | Stage | Contents |
 | --- | --- |
-| `base` | The app and its runtime dependencies |
+| `base` | The workspace and every member's runtime dependencies |
 | `test` | Dev dependencies and headless Chromium; runs the full suite |
-| `prod` | The Docs app alone, with only its own dependencies (the build fails if DSPy is importable) and compiled assets; runs `plain server` (a Tuning app image arrives in R6) |
+| `docs` | The Docs app alone, with only its own dependencies (the build fails if DSPy is importable) and compiled assets |
+| `tuning` | The Tuning app, with its own dependencies (DSPy, and optuna for MIPROv2) and compiled assets |
 
 ```bash
-docker build --target prod -t docs-to-ui:prod .
+docker build --target docs -t docs-to-ui:docs .
+docker build --target tuning -t docs-to-ui:tuning .
 ```
 
-Run the production image with its port published on your machine's loopback only, so nothing outside your machine can reach it. Inside the container the server listens on all interfaces, which is the only way Docker can forward to it; this is the one approved exception to the project's `127.0.0.1` rule (`AGENTS.md` §0). Always publish with `127.0.0.1:`, never plain `-p 8000:8000`:
+Each image runs its app's web server by default and its job worker with `plain jobs worker --queue docs` or `--queue tuning`, so a full deployment is four containers sharing one Postgres.
+
+Create or update the schema first, from the Tuning image (it installs every table). Tracing is off for this one-off command because the trace-backend lookup would run before its table exists:
 
 ```bash
-docker run -d --name docs-to-ui-web -p 127.0.0.1:8000:8000 \
-  -e PLAIN_SECRET_KEY=change-me \
-  -e PLAIN_HTTPS_REDIRECT_ENABLED=false \
+docker run --rm --add-host=host.docker.internal:host-gateway \
   -e DATABASE_URL=postgresql://postgres:postgres@host.docker.internal:5432/docs_to_ui \
-  -e GEMINI_API_KEY=your-gemini-api-key \
-  docs-to-ui:prod
+  -e PLAIN_SECRET_KEY=change-me -e PLAIN_TELEMETRY_EXPORT_ENABLED=false \
+  docs-to-ui:tuning plain postgres sync
 ```
 
-The app is then at `http://127.0.0.1:8000`. `host.docker.internal` reaches the Postgres from `docker-compose.yml`; on Linux without Docker Desktop, add `--add-host=host.docker.internal:host-gateway`. `PLAIN_HTTPS_REDIRECT_ENABLED=false` is needed because the local server speaks plain HTTP.
-
-Run the job worker from the same image, with the same environment variables and no published port:
+Then start the web servers with their ports published on your machine's loopback only, so nothing outside your machine can reach them. Inside a container the server listens on all interfaces, which is the only way Docker can forward to it; this is the one approved exception to the project's `127.0.0.1` rule (`AGENTS.md` §0). Always publish with `127.0.0.1:`, never plain `-p 8000:8000`:
 
 ```bash
-docker run -d --name docs-to-ui-worker \
-  -e PLAIN_SECRET_KEY=change-me \
+env="--add-host=host.docker.internal:host-gateway \
   -e DATABASE_URL=postgresql://postgres:postgres@host.docker.internal:5432/docs_to_ui \
-  -e GEMINI_API_KEY=your-gemini-api-key \
-  docs-to-ui:prod plain jobs worker --queue docs
+  -e PLAIN_SECRET_KEY=change-me -e PLAIN_HTTPS_REDIRECT_ENABLED=false \
+  -e GEMINI_API_KEY=your-gemini-api-key -e ANTHROPIC_API_KEY=your-anthropic-api-key"
+
+docker run -d --name docs-to-ui-docs-web -p 127.0.0.1:8000:8000 $env docs-to-ui:docs
+docker run -d --name docs-to-ui-tuning-web -p 127.0.0.1:8001:8000 $env docs-to-ui:tuning
+docker run -d --name docs-to-ui-docs-worker $env docs-to-ui:docs plain jobs worker --queue docs
+docker run -d --name docs-to-ui-tuning-worker $env docs-to-ui:tuning plain jobs worker --queue tuning
 ```
+
+The Docs app is then at `http://127.0.0.1:8000` and the Tuning app at `http://127.0.0.1:8001/tuning`. Workers publish no port. Pass the same variables to every container: provider keys, and the `LANGFUSE_*` variables if you use Langfuse. `host.docker.internal` reaches the Postgres from `docker-compose.yml`; `--add-host=host.docker.internal:host-gateway` makes that work on Linux without Docker Desktop too. `PLAIN_HTTPS_REDIRECT_ENABLED=false` is needed because the servers speak plain HTTP.
+
+CI builds both images and runs this same setup against a Postgres service: it checks that both apps serve their pages, that the Docs worker processes a generation from its queue, and that every port is published on the loopback only.
 
 ## Running the Application
 
@@ -408,7 +426,7 @@ docs-to-ui/
 │   ├── tuning_app/              Tuning app and pipeline tests
 │   └── e2e/                     Playwright journeys: docs/ (Docs app), tuning/ (Tuning app, cross-app)
 ├── .github/workflows/           ci.yml (every push)
-├── Dockerfile                   base, test and prod stages
+├── Dockerfile                   base, test, docs and tuning stages
 ├── docker-compose.yml           Postgres for development
 ├── docker-compose.test.yml      The containerized suite
 ├── SPEC.md, AGENTS.md           What to build, and how
@@ -560,7 +578,7 @@ tests/fixtures/            OpenAPI (single and multi-file), a Python package, fa
 
 ## Development Status
 
-v6 (milestones M1–M5) is complete, and v7 is in progress on the `redesign/v7` branch: R1 (the workspace restructure), R2 (direct LLM generation and the registry), R3 (trace backends chosen in the UI), R4 (the Tuning app's models, gold sets, evals, results and comparison) and R5 (prompt versions, DSPy optimization and feedback import) are done; R6 is planned. See the milestone table in [About This Project](#about-this-project) and `SPEC.md` §18.
+v6 (milestones M1–M5) is complete, and v7 is complete on the `redesign/v7` branch: R1 (the workspace restructure), R2 (direct LLM generation and the registry), R3 (trace backends chosen in the UI), R4 (the Tuning app's models, gold sets, evals, results and comparison), R5 (prompt versions, DSPy optimization and feedback import) and R6 (containers for both apps, CI, docs and the UAT plan) are done. See the milestone table in [About This Project](#about-this-project) and `SPEC.md` §18.
 
 Known gaps and deliberate differences from `SPEC.md`:
 
@@ -614,9 +632,9 @@ Check the Tuning app's **Settings** page: if **Native** isn't ticked, nothing is
 
 Spans are exported in batches every few seconds, from both the web server and the worker. The page checks again on its own while empty; reload it to see spans that arrived later.
 
-### Can't reach the production container
+### Can't reach a production container
 
-Check that the container publishes its port with `docker port docs-to-ui-web`; it should show `8000/tcp -> 127.0.0.1:8000`. If the page redirects to `https://`, add `-e PLAIN_HTTPS_REDIRECT_ENABLED=false`. If the container logs show database connection errors, point `DATABASE_URL` at `host.docker.internal` rather than `127.0.0.1`, which inside a container means the container itself.
+Check that the web container publishes its port with `docker port docs-to-ui-docs-web` (or `docs-to-ui-tuning-web`); it should show `8000/tcp -> 127.0.0.1:8000` (or `8001`). If the page redirects to `https://`, add `-e PLAIN_HTTPS_REDIRECT_ENABLED=false`. If the container logs show database connection errors, point `DATABASE_URL` at `host.docker.internal` rather than `127.0.0.1`, which inside a container means the container itself. If generations stay pending or Test connection never finishes, check that the matching worker container is running.
 
 ### Playwright can't start Chromium
 

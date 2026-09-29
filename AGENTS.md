@@ -27,7 +27,7 @@ This project runs on **Linux only**. Plain does not support native Windows. The 
 - **Line endings.** LF only. `.gitattributes` enforces `* text=auto eol=lf`. Set executable bits through git: `git update-index --chmod=+x`.
 - **Git.** WSL's `git` and `gh` are the only Git tools used on this checkout. Don't suggest Windows Git clients.
 - **Network binding.** The app binds to `127.0.0.1`. **Never** change it to `0.0.0.0` to "fix" access from Windows. Report the problem instead.
-  - **Approved exception:** the production Docker image (`Dockerfile`, `prod` stage) binds `0.0.0.0` *inside the container*, because Docker can only forward to it that way. Its port must always be published on the host's loopback only (`-p 127.0.0.1:8000:8000`), never on all interfaces. No other binding may change.
+  - **Approved exception:** the production Docker images (`Dockerfile`, `docs` and `tuning` stages) bind `0.0.0.0` *inside the container*, because Docker can only forward to it that way. Their ports must always be published on the host's loopback only (`-p 127.0.0.1:8000:8000`), never on all interfaces. No other binding may change.
 - **Docker.** Services (Postgres) run through Docker Desktop's WSL integration. If `docker` is not found, report it. Don't try to install Docker inside WSL.
 - **Playwright** runs headless in WSL. Install browsers with `uv run playwright install --with-deps chromium`.
 - **The design system is an input, not agent work.**

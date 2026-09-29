@@ -24,16 +24,30 @@ ENV PLAIN_DEBUG=true \
     PLAIN_SECRET_KEY=testing
 CMD ["sh", "-c", "python scripts/sync_design.py --check && cd docs_app && pytest && pytest -m e2e && cd ../tuning_app && pytest && pytest -m e2e"]
 
-# prod: the Docs app with compiled assets; run the web server and a worker
-# from this image. The server binds to 0.0.0.0 inside the container only, so
-# Docker can forward to it. Always publish the port on the host's loopback,
-# never on all interfaces: docker run -p 127.0.0.1:8000:8000 ...
-FROM base AS prod
+# Production images: one per app. Each runs the app's web server by default
+# and its job worker with `plain jobs worker --queue <docs|tuning>`. Servers
+# bind to 0.0.0.0 inside the container only, so Docker can forward to them.
+# Always publish ports on the host's loopback, never on all interfaces:
+# docker run -p 127.0.0.1:8000:8000 ...
+
+# docs: the Docs app with compiled assets.
+FROM base AS docs
 # Only the Docs app's dependencies: the exact sync removes DSPy and the other
 # Tuning-only packages, and the build fails if DSPy is still importable.
 RUN uv sync --frozen --no-dev --package docs \
     && python -c "import importlib.util, sys; sys.exit(importlib.util.find_spec('dspy') is not None)"
 WORKDIR /repo/docs_app
+RUN PLAIN_POSTGRES_URL=none PLAIN_SECRET_KEY=build-only PLAIN_TELEMETRY_EXPORT_ENABLED=false \
+    plain assets compile
+EXPOSE 8000
+CMD ["plain", "server", "--bind", "0.0.0.0:8000"]
+
+# tuning: the Tuning app with compiled assets. It includes the optimize group
+# (optuna, for MIPROv2): the numpy clash that keeps it opt-in affects only the
+# shared development environment, where the Docs app's worker also runs.
+FROM base AS tuning
+RUN uv sync --frozen --no-dev --package tuning --group optimize
+WORKDIR /repo/tuning_app
 RUN PLAIN_POSTGRES_URL=none PLAIN_SECRET_KEY=build-only PLAIN_TELEMETRY_EXPORT_ENABLED=false \
     plain assets compile
 EXPOSE 8000

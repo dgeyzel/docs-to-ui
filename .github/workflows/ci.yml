@@ -61,9 +61,68 @@ jobs:
       - name: E2E tests (Tuning app and cross-app journeys)
         run: uv run --directory tuning_app pytest -m e2e
 
-  image:
+  images:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: docs_to_ui
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d docs_to_ui"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+
+    env:
+      # Containers reach the Postgres service through the runner's gateway.
+      CONTAINER_DATABASE_URL: postgresql://postgres:postgres@host.docker.internal:5432/docs_to_ui
+
     steps:
       - uses: actions/checkout@v5
-      - name: Build the production image (compiles assets)
-        run: docker build --target prod -t docs-to-ui:prod .
+      - name: Build the Docs app image (fails if DSPy is importable)
+        run: docker build --target docs -t docs-to-ui:docs .
+      - name: Build the Tuning app image
+        run: docker build --target tuning -t docs-to-ui:tuning .
+      - name: Create the schema from the Tuning app image
+        run: >-
+          docker run --rm --add-host=host.docker.internal:host-gateway
+          -e DATABASE_URL="$CONTAINER_DATABASE_URL" -e PLAIN_SECRET_KEY=ci
+          -e PLAIN_TELEMETRY_EXPORT_ENABLED=false
+          docs-to-ui:tuning plain postgres sync
+      - name: Start both apps and both workers
+        run: |
+          common="--add-host=host.docker.internal:host-gateway -e DATABASE_URL=$CONTAINER_DATABASE_URL -e PLAIN_SECRET_KEY=ci -e PLAIN_HTTPS_REDIRECT_ENABLED=false"
+          docker run -d --name docs-web -p 127.0.0.1:8000:8000 $common docs-to-ui:docs
+          docker run -d --name tuning-web -p 127.0.0.1:8001:8000 $common docs-to-ui:tuning
+          docker run -d --name docs-worker $common docs-to-ui:docs plain jobs worker --queue docs
+          docker run -d --name tuning-worker $common docs-to-ui:tuning plain jobs worker --queue tuning
+      - name: Both apps serve their pages
+        run: |
+          curl --silent --fail --retry 20 --retry-delay 2 --retry-all-errors http://127.0.0.1:8000/ | grep -q "Generate documentation"
+          curl --silent --fail --retry 20 --retry-delay 2 --retry-all-errors http://127.0.0.1:8001/tuning | grep -q "Latest scores by language"
+      - name: The Docs worker runs a generation from its queue
+        run: |
+          # No provider key is set, so the job's expected outcome is a recorded provider error.
+          curl --silent --fail --output /dev/null -X POST http://127.0.0.1:8000/generations \
+            --data-urlencode "text@tests/fixtures/openapi/petstore-3.0.yaml" \
+            --data-urlencode "language=" --data-urlencode "entry="
+          for attempt in $(seq 30); do
+            status=$(docker exec docs-web plain shell -c "from d2u.generations.models import Generation; print(Generation.query.get(id=1).error_code)" 2>/dev/null | tail -1)
+            [ "$status" = "provider_error" ] && exit 0
+            sleep 2
+          done
+          echo "The generation was not processed (last status: $status)"
+          exit 1
+      - name: Every published port is on the loopback only
+        run: |
+          docker port docs-web | grep -qx "8000/tcp -> 127.0.0.1:8000"
+          docker port tuning-web | grep -qx "8000/tcp -> 127.0.0.1:8001"
+      - name: Container logs
+        if: failure()
+        run: for name in docs-web tuning-web docs-worker tuning-worker; do docker logs "$name"; done

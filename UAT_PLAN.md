@@ -1,6 +1,6 @@
 # Docs-to-UI: User Acceptance Test Plan
 
-**Based on:** `SPEC.md` v6.1
+**Based on:** `SPEC.md` v7
 **Execution:** Manual
 **Tester:** ______________
 **Build / commit:** ______________
@@ -10,30 +10,36 @@
 
 ## 1. Purpose and Scope
 
-This plan confirms that Docs-to-UI does what `SPEC.md` promises, from the point of view of the person using it. It covers:
+This plan confirms that Docs-to-UI does what `SPEC.md` promises, from the point of view of the person using it. It covers both apps.
 
-- input handling
-- generation
-- the doc page
-- export
-- feedback
-- tracing (native and Langfuse)
-- configuration
+**Docs app**
+- input handling and zip safety
+- generation with the active model and prompt
+- the doc page, export and feedback
+
+**Tuning app**
+- models, prompt versions and runtime settings
+- gold sets, eval runs, metrics and run comparison
+- DSPy optimization and promotion
+
+**Both**
+- tracing (native and Langfuse, chosen in the UI)
+- containers
 - design tokens
-- the optimization pipeline
 
-It does not repeat the automated test suite. Where a behavior is hard to trigger by hand, the case says how to force it through configuration.
+It does not repeat the automated test suite. Where a behavior is hard to trigger by hand, the case says how to force it through configuration or the Tuning app.
 
 **Out of scope:** multi-user access, authentication, hosting, and mixed-language zips (spec §2 non-goals).
 
 ## 2. Entry and Exit Criteria
 
 **Entry**
-- [ ] The automated suite passes: `uv run pytest` and `uv run pytest -m e2e`.
-- [ ] `uv run plain code check` passes.
+- [ ] The automated suites pass: `uv run --directory docs_app pytest`, `uv run --directory tuning_app pytest`, and both with `-m e2e`.
+- [ ] The three code checks pass (`AGENTS.md` §1).
 - [ ] The test-data kit (§4) has been prepared.
-- [ ] A Gemini API key with enough quota is available.
-- [ ] For section K only: a Langfuse project, with its public key, secret key, base URL, and project ID.
+- [ ] A Gemini API key (generation) and an Anthropic API key (the default judge) with enough quota are available, set in both `docs_app/.env` and `tuning_app/.env`.
+- [ ] For section K only: a Langfuse project, with its public key, secret key, base URL and project ID.
+- [ ] For section R only: Docker Desktop with WSL integration.
 
 **Exit**
 - Every **Critical** and **High** case passes.
@@ -44,14 +50,14 @@ It does not repeat the automated test suite. Where a behavior is hard to trigger
 
 | Severity | Meaning |
 |---|---|
-| **Critical** | Core loop broken, data or security exposure, or the app won't start |
+| **Critical** | Core loop broken, data or security exposure, or an app won't start |
 | **High** | A spec'd feature doesn't work, or gives wrong output |
 | **Medium** | The feature works, but with a notable defect or poor feedback to the user |
 | **Low** | Cosmetic issue or minor inconvenience |
 
 **Results:** **P** = Pass, **F** = Fail, **B** = Blocked (couldn't run), **N/A** = not applicable.
 
-For every **F**, record: the steps to reproduce, expected vs. actual behavior, the generation ID and trace ID if any, and a screenshot.
+For every **F**, record: the steps to reproduce, expected vs. actual behavior, the generation, eval run or optimization run ID and the trace ID if any, and a screenshot.
 
 ## 4. Test-Data Kit
 
@@ -63,69 +69,79 @@ Prepare these files in a `uat-data/` folder outside the repository before starti
 | D02 | `service-3.1.yaml` | OpenAPI 3.1 YAML spec: about 10 operations |
 | D03 | `openapi-multifile.zip` | Root `openapi.yaml` with relative `$ref`s to `schemas/*.yaml` and `paths/*.yaml` |
 | D04 | `remote-ref.yaml` | OpenAPI spec with a `$ref: "https://example.com/schema.yaml"` |
-| D05 | `broken.yaml` | Invalid OpenAPI (for example, a missing `paths` key, or broken YAML indentation) |
+| D05 | `broken.yaml` | Invalid OpenAPI (for example, broken YAML indentation on a known line) |
 | D06 | `single_module.py` | One Python module with 3 public functions (with docstrings and type hints), 1 public class with 2 methods, and 1 `_private` function |
 | D07 | `pkg-src-layout.zip` | A `src/acme/` package: `__init__.py` re-exports `Client` from `client.py` and lists it in `__all__`, plus `utils.py`, a `tests/` folder, a `.venv/` folder, and a `__pycache__/` folder |
 | D08 | `github-style.zip` | Any Python package zipped inside a single top-level folder `acme-main/` |
 | D09 | `syntax_error.py` | Python file with a syntax error on a known line (for example, line 12) |
 | D10 | `xss_docstring.py` | Python function whose docstring contains `<script>alert('x')</script>` and `<img src=x onerror=alert(1)>` |
-| D11 | `large-openapi.json` | OpenAPI spec of about **4.5 MB** with several hundred operations, enough to need many batches |
-| D12 | `too-large.json` | Any valid file of about **5.2 MB** |
+| D11 | `large-openapi.json` | OpenAPI spec of about **900 KB** with a few hundred operations |
+| D12 | `too-large.json` | Any valid file of about **1.2 MB** |
 | D13 | `zip-slip.zip` | An entry whose path is `../../evil.py` |
 | D14 | `zip-symlink.zip` | An entry that is a symlink |
-| D15 | `zip-bomb.zip` | Compresses to under 5 MB but expands to more than 50 MB |
-| D16 | `zip-many.zip` | More than 5,000 tiny entries |
+| D15 | `zip-bomb.zip` | Compresses to under 1 MB but expands to more than 50 MB |
+| D16 | `zip-many.zip` | More than 5,000 tiny entries (still under 1 MB) |
 | D17 | `zip-mixed-junk.zip` | Valid Python package plus a non-UTF-8 `.py` file, a nested `inner.zip`, and a `.png` |
 | D18 | `mixed-lang.zip` | Python package plus an `openapi.yaml` |
+| D19 | `two-entries.zip` | Two independent OpenAPI documents, `v1/openapi.yaml` and `v2/openapi.yaml` |
+| D20 | `prompt-v2.json` | A prompt version export (made in M05) with its `version` changed to `imported` |
 
 ---
 
 ## 5. Test Cases
 
-Each case lists its spec reference, severity, steps, and expected result, followed by a line for the result and notes. **Default settings** means `TELEMETRY_BACKENDS=["native"]` and all other settings at their spec defaults.
+Each case lists its spec reference, severity, steps, and expected result, followed by a line for the result and notes. **Default settings** means the seeded registry (Gemini 3.8 Flash active, Claude Sonnet 4.5 as default judge, `baseline` prompts active), native tracing selected on the Settings page, and all other settings at their spec defaults. "Docs app" is `https://localhost:8443`; "Tuning app" is `https://localhost:8444/tuning`.
 
 ### A. Setup and Configuration
 
-**UAT-A01: App and worker start** (§9, §14) · Critical
-1. Copy `.env.example` to `.env`. Fill in `DATABASE_URL` and `GEMINI_API_KEY`.
-2. Run `uv run plain dev`.
+**UAT-A01: Both apps and both workers start** (§14, §15) · Critical
+1. Copy each app's `.env.example` to `.env` and fill in `DATABASE_URL` and the provider keys.
+2. Run `uv run --directory tuning_app plain postgres sync`.
+3. Start both apps with the `plain dev` commands from the README.
 
-**Expected:** The web server and job worker both start with no errors. The home page loads at `http://127.0.0.1:<port>`.
+**Expected:** Each app's web server and job worker start with no errors. The Docs app's home page and the Tuning app's dashboard load.
 
 Result: ___ Notes: ______________________
 
-**UAT-A02: `.env.example` is complete** (§15) · Medium
-1. Compare `.env.example` with the configuration table in spec §15.
+**UAT-A02: `.env.example` files are complete** (§16) · Medium
+1. Compare `docs_app/.env.example` and `tuning_app/.env.example` with the configuration table in spec §16.
 
-**Expected:** Every variable in the table appears, with a placeholder value. No real secrets are present.
+**Expected:** Every variable the app uses appears, with a placeholder value. No real secrets are present. `PLAIN_TELEMETRY_BACKENDS` appears nowhere.
 
 Result: ___ Notes: ______________________
 
 **UAT-A03: Local-only binding** (§2) · High
-1. With the app running, try to open it from another device on the same network, using the machine's LAN IP.
+1. With both apps running, try to open each from another device on the same network, using the machine's LAN IP.
 
-**Expected:** The connection is refused. The app is reachable only through `127.0.0.1`.
-
-Result: ___ Notes: ______________________
-
-**UAT-A04: Missing Langfuse credentials are caught at startup** (§10.3, §15) · Medium
-1. Set `PLAIN_TELEMETRY_BACKENDS='["langfuse"]'` and leave the `LANGFUSE_*` variables empty.
-2. Restart.
-
-**Expected:** Startup fails with a clear message naming the missing variables. It does not start silently without tracing.
+**Expected:** The connection is refused. Both apps are reachable only through `localhost` / `127.0.0.1`.
 
 Result: ___ Notes: ______________________
 
-**UAT-A05: `.env` is ignored by git** (AGENTS §7) · High
-1. Run `git status` and `git check-ignore .env`.
+**UAT-A04: Each worker serves only its own queue** (§14) · High
+1. Stop the Tuning app (and so its worker), leaving the Docs app running.
+2. In the Docs app, generate D01. Then start the Tuning app and run **Test connection** on any model.
 
-**Expected:** `.env` is ignored and never shows up as a change.
+**Expected:** The generation completes while the Tuning app is down. The connection test stays pending until the Tuning app's worker is running, and then completes. Neither worker logs an unknown-job error.
 
 Result: ___ Notes: ______________________
 
-### B. Input Handling
+**UAT-A05: `.env` files are ignored by git** (AGENTS §7) · High
+1. Run `git status` and `git check-ignore docs_app/.env tuning_app/.env`.
 
-**UAT-B01: Paste OpenAPI JSON** (§4, §8) · Critical
+**Expected:** Both files are ignored and never show up as changes.
+
+Result: ___ Notes: ______________________
+
+**UAT-A06: Docs app preflight on the shared database** (§13) · Low
+1. Run `uv run --directory docs_app plain preflight`.
+
+**Expected:** It passes, and doesn't suggest dropping the Tuning app's tables.
+
+Result: ___ Notes: ______________________
+
+### B. Input Handling (Docs app)
+
+**UAT-B01: Paste OpenAPI JSON** (§4) · Critical
 1. Paste the contents of D01 into the paste box.
 2. Set the language to OpenAPI and submit.
 
@@ -133,202 +149,206 @@ Result: ___ Notes: ______________________
 
 Result: ___ Notes: ______________________
 
-**UAT-B02: Upload an OpenAPI YAML file** (§7) · Critical
+**UAT-B02: Upload an OpenAPI YAML file** (§4) · Critical
 1. Upload D02 without setting a language.
 
 **Expected:** The language is detected as OpenAPI automatically, and the generation succeeds.
 
 Result: ___ Notes: ______________________
 
-**UAT-B03: Upload a single Python module** (§7) · Critical
+**UAT-B03: Upload a single Python module** (§4) · Critical
 1. Upload D06 without setting a language.
 
 **Expected:** The language is detected as Python, and the generation succeeds.
 
 Result: ___ Notes: ______________________
 
-**UAT-B04: Multi-file OpenAPI zip** (§7) · High
+**UAT-B04: Multi-file OpenAPI zip** (§4, §10) · High
 1. Upload D03.
 
 **Expected:** The relative `$ref`s resolve. Operations and schemas from the referenced files appear on the doc page.
 
 Result: ___ Notes: ______________________
 
-**UAT-B05: Remote `$ref` is rejected** (§7, AGENTS §7) · High
+**UAT-B05: Remote `$ref` is rejected** (§10, AGENTS §7) · High
 1. Upload D04.
 
 **Expected:** The generation fails with an input error that names the remote reference. No network request is made to `example.com`.
 
 Result: ___ Notes: ______________________
 
-**UAT-B06: Invalid OpenAPI** (§4 stage 4) · High
-1. Upload D05.
+**UAT-B06: Broken input fails before any model call** (§4) · High
+1. Upload D05, then D09.
 
-**Expected:** The generation fails with `input_error`. The message includes the file and, where possible, the line.
-
-Result: ___ Notes: ______________________
-
-**UAT-B07: Python syntax error** (§4, §7) · High
-1. Upload D09.
-
-**Expected:** The generation fails with `input_error`, showing the file path and the correct line number (for example, 12).
+**Expected:** Each fails with `input_error`, showing the file and the correct line. The generation records no tokens or cost, and its trace has no LLM span.
 
 Result: ___ Notes: ______________________
 
-**UAT-B08: Python package zip in src layout** (§7, §8) · Critical
+**UAT-B07: Python package zip in src layout** (§4, §10) · Critical
 1. Upload D07.
 
-**Expected:**
-- Module paths start at `acme` (not `src.acme`).
-- The generation succeeds.
+**Expected:** Module paths start at `acme` (not `src.acme`). The generation succeeds.
 
 Result: ___ Notes: ______________________
 
-**UAT-B09: Default excludes** (§7) · High
+**UAT-B08: Default excludes** (§10) · High
 1. On the D07 generation page, open the file manifest.
 
-**Expected:** Files under `tests/`, `.venv/`, and `__pycache__/` are listed as **skipped**, each with a reason. No operations from them appear on the doc page.
+**Expected:** Files under `tests/`, `.venv/` and `__pycache__/` are listed as **skipped**, each with a reason. No operations from them appear on the doc page.
 
 Result: ___ Notes: ______________________
 
-**UAT-B10: GitHub-style root folder is stripped** (§8) · Medium
+**UAT-B09: GitHub-style root folder is stripped** (§10) · Medium
 1. Upload D08.
 
 **Expected:** Module paths do not include `acme-main`.
 
 Result: ___ Notes: ______________________
 
-**UAT-B11: Manifest counts** (§8) · Medium
-1. On any zip generation, compare the "Files read (N included, M skipped)" line with the archive's actual contents.
+**UAT-B10: Manifest counts** (§10) · Medium
+1. On any zip generation, compare the "Files read (N included, M skipped)" line with the archive's contents.
 
 **Expected:** The counts match. Every skipped file shows a reason.
 
 Result: ___ Notes: ______________________
 
-**UAT-B12: Language override** (§4 stage 3) · Medium
+**UAT-B11: Language override** (§4) · Medium
 1. Upload D18 with no override. Note which adapter is chosen.
-2. Upload D18 again, this time choosing the other language explicitly.
+2. Upload D18 again, choosing the other language explicitly.
 
-**Expected:**
-- In both runs, one adapter is used, and the other language's files are listed as skipped (a non-goal in §2).
-- The override is respected.
+**Expected:** In both runs one adapter is used, and the other language's files are listed as skipped. The override is respected.
+
+Result: ___ Notes: ______________________
+
+**UAT-B12: OpenAPI entry file** (§4) · High
+1. Upload D19 with no entry file.
+2. Upload it again with the entry file `v2/openapi.yaml`.
+
+**Expected:** The first fails with `input_error` asking for an entry file. The second documents only the v2 API.
 
 Result: ___ Notes: ______________________
 
 **UAT-B13: Size cap, just under** (§3 D8) · High
-1. Upload D11 (about 4.5 MB).
+1. Upload D11 (about 900 KB).
 
 **Expected:** The upload is accepted and a generation is created.
 
 Result: ___ Notes: ______________________
 
-**UAT-B14: Size cap, over** (§3 D8, §12) · High
-1. Upload D12 (about 5.2 MB).
-2. Paste more than 5 MB of text.
+**UAT-B14: Size cap, over** (§3 D8, §10) · High
+1. Upload D12 (about 1.2 MB).
+2. Paste more than 1 MB of text.
 
-**Expected:** Both are rejected at the form with a clear size message. No `Generation` is created; confirm that the history list is unchanged.
+**Expected:** Both are rejected at the form with a clear size message. No generation is created; the history list is unchanged.
 
 Result: ___ Notes: ______________________
 
 ### C. Zip Safety
 
-For each case below, confirm afterwards that **no files were written anywhere on disk** outside the app's normal temp paths. Checking the repo folder and the app's working directory for new files is enough.
+For each case below, confirm afterwards that **no files were written anywhere on disk** outside the app's normal temp paths. Checking the repo folder for new files is enough.
 
-**UAT-C01: Zip-slip path** (§8) · Critical
+**UAT-C01: Zip-slip path** (§10) · Critical
 1. Upload D13.
 
 **Expected:** `input_error` naming the unsafe path. No file is created outside the bundle.
 
 Result: ___ Notes: ______________________
 
-**UAT-C02: Symlink entry** (§8) · Critical
+**UAT-C02: Symlink entry** (§10) · Critical
 1. Upload D14.
 
 **Expected:** The upload is rejected, with a message about the symlink.
 
 Result: ___ Notes: ______________________
 
-**UAT-C03: Zip bomb** (§8) · Critical
+**UAT-C03: Zip bomb** (§10) · Critical
 1. Upload D15.
 
-**Expected:**
-- It fails quickly with a limit error.
-- The app stays responsive, and memory doesn't spike to the full expanded size.
+**Expected:** It fails quickly with a limit error. The app stays responsive, and memory doesn't spike to the full expanded size.
 
 Result: ___ Notes: ______________________
 
-**UAT-C04: Too many entries** (§8) · High
+**UAT-C04: Too many entries** (§10) · High
 1. Upload D16.
 
 **Expected:** It fails with an entry-limit error.
 
 Result: ___ Notes: ______________________
 
-**UAT-C05: Junk entries are skipped, not fatal** (§8) · High
+**UAT-C05: Junk entries are skipped, not fatal** (§10) · High
 1. Upload D17.
 
-**Expected:**
-- The generation succeeds.
-- The non-UTF-8 file, the nested zip, and the image appear as skipped in the manifest, each with a reason.
+**Expected:** The generation succeeds. The non-UTF-8 file, the nested zip and the image appear as skipped in the manifest, each with a reason.
 
 Result: ___ Notes: ______________________
 
-### D. Generation Job and Status UI
+### D. Generation Job and Status UI (Docs app)
 
-**UAT-D01: Status progression** (§9) · High
+**UAT-D01: Status progression** (§4, §6.6) · High
 1. Submit D02 and watch the status fragment.
 
-**Expected:** The stage updates about every 2 seconds, through bundle, extract, enrich, overview, and merge. On success, the browser moves to the doc page by itself.
+**Expected:** The stage updates about every 2 seconds (bundle, generate, merge). On success, the browser moves to the doc page by itself.
 
 Result: ___ Notes: ______________________
 
-**UAT-D02: Batch progress on a large input** (§6.4) · High
-1. Submit D11.
+**UAT-D02: Large input is split into parts** (§6.4) · High · *Needs a Tuning app change*
+1. In the Tuning app, edit the active model and set **Max input tokens** to 20000.
+2. Submit D11 in the Docs app.
 
-**Expected:**
-- The status shows "batches done / total", and the count rises.
-- The generation succeeds within the 15-minute timeout. Record the duration.
+**Expected:** The status shows "Generated N of M parts", and the count rises. The page merges all parts, with one overview for the whole API. Record the duration. Restore the model's setting afterwards.
 
 Result: ___ Notes: ______________________ Duration: ______
 
-**UAT-D03: Polling stops on failure** (§9) · Medium
-1. Submit D05.
-2. Open the browser's network tab.
+**UAT-D03: Polling stops on failure** (§6.6) · Medium
+1. Submit D05 with the browser's network tab open.
 
 **Expected:** An error fragment with a **Retry** button appears. The status requests stop after the failure response.
 
 Result: ___ Notes: ______________________
 
-**UAT-D04: Retry and regenerate** (§9) · High
-1. On a succeeded generation, click **Regenerate**.
-2. On a failed generation, click **Retry**.
+**UAT-D04: Retry and regenerate** (§6.6) · High
+1. On a succeeded generation, click **Regenerate**. On a failed one, click **Retry**.
 
-**Expected:** Each creates a **new** generation from the stored input. The original generations remain in the history list, unchanged.
-
-Result: ___ Notes: ______________________
-
-**UAT-D05: Soft timeout** (§9) · Medium · *Needs a configuration change*
-1. Set `PLAIN_GENERATIONS_TIMEOUT_S=10` and restart.
-2. Submit D11.
-
-**Expected:** The generation fails with `timeout`, and the UI says so clearly.
-Reset the setting afterwards.
+**Expected:** Each creates a **new** generation from the stored input, using the current active model and prompt. The originals remain in the history list, unchanged.
 
 Result: ___ Notes: ______________________
 
-**UAT-D06: Worker killed mid-run** (§9) · High · *Needs process control*
-1. Submit D11.
-2. While it is enriching, kill the worker process (for example, stop `plain dev` or kill the worker PID).
+**UAT-D05: Soft timeout** (§6.6) · Medium · *Needs a configuration change*
+1. Set `PLAIN_GENERATIONS_TIMEOUT_S=10` in `docs_app/.env` and restart the Docs app.
+2. Submit D11 with the split from D02.
+
+**Expected:** The generation fails with `timeout`, and the UI says so clearly. Reset the setting afterwards.
+
+Result: ___ Notes: ______________________
+
+**UAT-D06: Worker killed mid-run** (§6.6) · High · *Needs process control*
+1. Submit D11 (split as in D02).
+2. While it is generating, kill the Docs app's worker process.
 3. Restart it and wait at least 5 minutes, which is the heartbeat timeout.
 
 **Expected:** The generation ends as `failed` with `worker_lost`. It does not stay "running" forever.
 
 Result: ___ Notes: ______________________
 
-**UAT-D07: Generation history** (§12) · Medium
-1. Open the generations list.
+**UAT-D07: Generation history and records** (§13) · Medium
+1. Open the history list and a finished generation.
 
-**Expected:** Every generation from this session appears, with status, language, input name, date, program version, and model.
+**Expected:** Every generation from this session appears. A generation's page shows its strategy, model, prompt version, tokens and cost.
+
+Result: ___ Notes: ______________________
+
+**UAT-D08: Active choices shown read-only** (§6.5, §11.2) · Medium
+1. Look at the hint under the Docs app's generation form.
+
+**Expected:** It names the active model, the active prompt versions and the selected trace backends, and says they are chosen in the Tuning app. The Docs app offers no way to change them.
+
+Result: ___ Notes: ______________________
+
+**UAT-D09: Hybrid strategy option** (§6.3) · Low · *Needs a configuration change*
+1. Set `PLAIN_GENERATIONS_ENABLE_HYBRID=true` in `docs_app/.env` and restart.
+2. Generate D01 with the **Hybrid** strategy.
+
+**Expected:** The form offers the strategy; the page is built from the parser's structure with model-written descriptions, and records `hybrid`. Reset the setting afterwards.
 
 Result: ___ Notes: ______________________
 
@@ -336,393 +356,480 @@ Result: ___ Notes: ______________________
 
 Use the D01 and D07 generations unless the case says otherwise.
 
-**UAT-E01: Complete coverage** (§10 metric: coverage) · Critical
-1. Count the operations in D01.
-2. Count the operation cards on the page.
+**UAT-E01: Complete coverage** (§9.5 coverage) · Critical
+1. Count the operations in D01, then the operation cards on the page.
 
 **Expected:** Every operation appears exactly once.
 
 Result: ___ Notes: ______________________
 
-**UAT-E02: No invented content** (§4 stage 7) · Critical
+**UAT-E02: No invented content** (§9.5 faithfulness) · Critical
 1. Compare the operations and parameters on the page against the source.
 
 **Expected:** No operation or parameter appears that doesn't exist in the input.
 
 Result: ___ Notes: ______________________
 
-**UAT-E03: Existing descriptions respected** (§5 rules) · High
+**UAT-E03: Existing descriptions respected** (§5) · High
 1. For operations in D01 that already have descriptions, compare the page text with the source.
 
 **Expected:** The page expands on the source description without contradicting it.
 
 Result: ___ Notes: ______________________
 
-**UAT-E04: Parameter tables** (§11.2) · High
+**UAT-E04: Parameter tables** (§12) · High
 1. Open 3 operations and check each parameter table.
 
-**Expected:** Each parameter shows its name, location, type, required flag, default (if any), and a description.
+**Expected:** Each parameter shows its name, location, type, required flag, default (if any) and a description.
 
 Result: ___ Notes: ______________________
 
-**UAT-E05: Examples are sensible** (§10 metric: example validity) · High
+**UAT-E05: Examples are sensible** (§9.5 example validity) · High
 1. Check the examples on 3 operations.
 
-**Expected:**
-- The JSON parses.
-- The curl paths match real endpoints.
-- The Python examples are syntactically valid and use real names.
+**Expected:** The JSON parses; the curl paths match real endpoints; the Python examples are valid and use real names.
 
 Result: ___ Notes: ______________________
 
-**UAT-E06: Python public API rules** (§7) · High
+**UAT-E06: Stable IDs** (§5, D4) · High
+1. Generate D01 twice (Regenerate) and compare the operation anchors (`#…`) in the page URL when clicking sidebar entries.
+
+**Expected:** Operation IDs are `METHOD /path` for HTTP and qualified names for Python, identical across generations.
+
+Result: ___ Notes: ______________________
+
+**UAT-E07: Python public API rules** (§4) · High
 1. On the D07 page, look for the `_private` function and for `Client`.
 
-**Expected:**
-- The `_private` function is absent.
-- `Client` appears **once**, under `acme.Client` (its public path), not also under `acme.client.Client`.
-- Its source location points to `acme/client.py`.
+**Expected:** The `_private` function is absent. `Client` appears once, under `acme.Client`, with its source location pointing to `acme/client.py`.
 
 Result: ___ Notes: ______________________
 
-**UAT-E07: Source locations** (§5) · Medium
+**UAT-E08: Source locations** (§5) · Medium
 1. On the D06 page, check each operation's file and line against the source.
 
-**Expected:** Every file path and line number is correct.
+**Expected:** Every shown file path and line number is correct; none point outside the input.
 
 Result: ___ Notes: ______________________
 
-**UAT-E08: Overview and navigation groups** (§6.1) · High
-1. Read the overview.
-2. Check the sidebar groups.
+**UAT-E09: Overview and navigation groups** (§6.2) · High
+1. Read the overview and check the sidebar groups.
 
-**Expected:**
-- The overview accurately summarizes the API.
-- The groups follow the OpenAPI tags, or the Python modules and classes.
-- Every operation appears in the navigation.
+**Expected:** The overview accurately summarizes the API. Every operation appears in the navigation, in sensible groups.
 
 Result: ___ Notes: ______________________
 
-**UAT-E09: Script injection is neutralized** (§5 rules, AGENTS §7) · Critical
-1. Generate docs from D10.
-2. View the page. Then view the HTML export.
+**UAT-E10: Script injection is neutralized** (§5, AGENTS §7) · Critical
+1. Generate docs from D10. View the page, then the HTML export.
 
-**Expected:**
-- No alert box appears in either.
-- The `<script>` and `onerror` content is shown as text or removed, never executed.
-- The dev tools console shows no errors caused by it.
-
-Result: ___ Notes: ______________________
-
-**UAT-E10: Partial enrichment marker** (§6.1) · Medium · *Developer-assisted*
-1. Ask a developer to force one batch to fail, for example with a `DummyLM` fixture that returns invalid output for one batch.
-2. Run a multi-batch generation.
-
-**Expected:**
-- The page still renders.
-- The affected operations show their source descriptions with a visible "not enriched" marker.
+**Expected:** No alert box appears in either. The `<script>` and `onerror` content is shown as text or removed, never executed.
 
 Result: ___ Notes: ______________________
 
 ### F. Doc Page Interactivity and Styling
 
-**UAT-F01: Sidebar navigation** (§11.3) · High
+**UAT-F01: Sidebar navigation** (§12) · High
 1. Click several sidebar entries.
 
 **Expected:** The page scrolls to the right operation. The active group is shown as selected.
 
 Result: ___ Notes: ______________________
 
-**UAT-F02: Collapsible sections** (§11.3) · Medium
+**UAT-F02: Collapsible sections** (§12) · Medium
 1. Collapse and expand several operation cards and groups.
 
 **Expected:** Each works smoothly, with no page reload.
 
 Result: ___ Notes: ______________________
 
-**UAT-F03: Example language tabs** (§11.2) · Medium
-1. Switch between curl, Python, and JSON tabs on an operation.
+**UAT-F03: Example language tabs and copy** (§12) · Medium
+1. Switch between example tabs on an operation, then copy an example into an editor.
 
-**Expected:** The content switches correctly, with no reload.
-
-Result: ___ Notes: ______________________
-
-**UAT-F04: Copy button** (§11.2) · Medium
-1. Copy an example.
-2. Paste it into an editor.
-
-**Expected:** The exact example text is pasted, with no extra markup.
+**Expected:** The content switches with no reload; the exact example text is pasted.
 
 Result: ___ Notes: ______________________
 
-**UAT-F05: No server calls from the doc page** (§11.3) · High
-1. Open the network tab.
-2. Use navigation, collapsing, tabs, and copy on the doc page.
+**UAT-F04: No server calls from the doc page** (§12) · High
+1. With the network tab open, use navigation, collapsing, tabs and copy on the doc page.
 
 **Expected:** No network requests are triggered by these interactions.
 
 Result: ___ Notes: ______________________
 
-**UAT-F06: Design tokens applied** (§11.1) · Medium
-1. Change one color token in `design/docs-to-ui/tokens.css`, for example the primary accent.
-2. Run `uv run python scripts/sync_design.py` and reload the page.
+**UAT-F05: Themes** (§12) · Low
+1. Click **Toggle theme** in either app, and reload.
 
-**Expected:** The change appears everywhere that token is used. Revert the change afterwards.
+**Expected:** The theme switches and is remembered. Every page stays legible in both themes.
 
 Result: ___ Notes: ______________________
 
 ### G. Export
 
-**UAT-G01: HTML export downloads** (§11.4) · Critical
+**UAT-G01: HTML export downloads** (§12) · Critical
 1. On a succeeded generation, click **Export HTML**.
 
 **Expected:** A single `.html` file downloads.
 
 Result: ___ Notes: ______________________
 
-**UAT-G02: Export works fully offline** (§11.4) · Critical
-1. Disconnect from the network, or stop the app.
-2. Open the exported file directly from disk.
+**UAT-G02: Export works fully offline** (§12) · Critical
+1. Stop the apps and open the exported file directly from disk.
 
-**Expected:**
-- The page renders with full styling.
-- Navigation, collapsing, tabs, and copy all work.
+**Expected:** The page renders with full styling. Navigation, collapsing, tabs and copy all work.
 
 Result: ___ Notes: ______________________
 
-**UAT-G03: Export is self-contained** (§11.4) · High
-1. Open the export with dev tools' network tab open.
+**UAT-G03: Export is self-contained** (§12) · High
+1. Open the export with the network tab open, and search the file for `hx-`.
 
-**Expected:**
-- There are no requests to external hosts or to the app.
-- There are no feedback buttons, app links, or HTMX attributes. To check, search the file for `hx-`.
+**Expected:** No requests to external hosts or to the app. No feedback buttons, app links or HTMX attributes.
 
 Result: ___ Notes: ______________________
 
-**UAT-G04: JSON export** (§11.4) · Medium
+**UAT-G04: JSON export** (§12) · Medium
 1. Click **Export JSON**.
 
-**Expected:** The file is valid JSON with `schema_version`, `surface`, `overview`, and `operations`, and its contents match the page.
-
-Result: ___ Notes: ______________________
-
-**UAT-G05: Export of a large generation** (§11.4) · Medium
-1. Export the D11 generation and open it.
-
-**Expected:** It opens and stays usable (scrolling and navigation work) in a normal browser.
+**Expected:** Valid JSON with `schema_version` 2, `strategy`, `surface`, `overview` and `operations`, matching the page.
 
 Result: ___ Notes: ______________________
 
 ### H. Feedback
 
-**UAT-H01: Page-level feedback** (§10.5) · High
-1. Click 👍 on the whole page.
-2. Then click 👎 with a comment.
+**UAT-H01: Page-level feedback** (§11.2) · High
+1. Click 👍 on the whole page. Then click 👎 with a comment.
 
-**Expected:** The feedback is saved and acknowledged in the UI. It is still there after a page reload.
-
-Result: ___ Notes: ______________________
-
-**UAT-H02: Operation-level feedback** (§10.5) · High
-1. Click 👎 on one operation card and add a correction comment.
-
-**Expected:** The feedback is saved against that specific operation.
+**Expected:** The feedback is saved and acknowledged, and still shown after a reload.
 
 Result: ___ Notes: ______________________
 
-**UAT-H03: Feedback export for the pipeline** (§10.5, §13) · Medium
-1. Run `uv run python dspy_pipeline/optimize.py export-feedback`, or the documented equivalent.
+**UAT-H02: Operation-level feedback** (§11.2) · High
+1. Click 👎 on one operation card with a correction comment.
 
-**Expected:** Each 👎 with a comment from H01 and H02 appears as a candidate entry, including the input reference, the operation, and the comment.
+**Expected:** The feedback is saved against that specific operation. (Section N imports it into a gold set.)
 
 Result: ___ Notes: ______________________
 
-### J. Native Tracing (default backend)
+### J. Native Tracing
 
-**UAT-J01: Trace link from a generation** (§10.2, §10.4) · High
+**UAT-J01: Trace link from a generation** (§11.4) · High
 1. On a succeeded generation, click **View trace**.
 
 **Expected:** The native trace page for that generation opens.
 
 Result: ___ Notes: ______________________
 
-**UAT-J02: One connected trace** (§10.1, §10.2) · Critical
+**UAT-J02: One connected trace** (§11.1) · Critical
 1. In that trace, inspect the waterfall.
 
-**Expected:** The request, the job, each stage span, and each LLM call all appear in **one** trace, as a correct parent/child tree.
+**Expected:** The request, the job, each stage span and each LLM call all appear in **one** trace, as a correct parent/child tree.
 
 Result: ___ Notes: ______________________
 
-**UAT-J03: LLM call detail** (§10.4) · High
+**UAT-J03: LLM call detail** (§11.4) · High
 1. Open an LLM span.
 
-**Expected:** It shows the model (`gemini-3.8-flash` by default), the input and output messages, and prompt, completion, and total token counts.
+**Expected:** It shows the model, the input and output messages, and token counts. The span carries `docs.model` and `docs.prompt_version`.
 
 Result: ___ Notes: ______________________
 
-**UAT-J04: Generation summary strip** (§10.4) · Medium
-1. Compare the generation page's summary (LLM calls, tokens, wall time) with the trace.
+**UAT-J04: Trace list and filters in both apps** (§11.4) · Medium
+1. Open the trace list in the Docs app (`/traces`) and the Tuning app (`/tuning/traces`).
+2. Filter by a generation, by error status, and (Tuning app) by an eval run from section P.
 
-**Expected:** The numbers match.
-
-Result: ___ Notes: ______________________
-
-**UAT-J05: Trace list and filters** (§10.4) · Medium
-1. Open `/traces/`.
-2. Filter by a generation, then by error status.
-
-**Expected:** The filters work correctly. Failed generations (for example, D05) show as errors.
+**Expected:** The same traces appear in both apps. The filters work. The list says which backends traces go to, and in the Tuning app links to Settings.
 
 Result: ___ Notes: ______________________
 
-**UAT-J06: Large prompts truncated safely** (§10.3) · Low
-1. Open an LLM span from the D11 generation.
-
-**Expected:** Very large attributes end with a `…[truncated]` marker. The page loads quickly.
-
-Result: ___ Notes: ______________________
-
-**UAT-J07: No secrets in traces** (AGENTS §7) · Critical
-1. Search several traces' attributes, and the database table (`SELECT … WHERE attributes::text LIKE '%<first 8 chars of your key>%'`), for your Gemini API key.
+**UAT-J05: No secrets in traces** (AGENTS §7) · Critical
+1. Search several traces' attributes, and the spans table (`… WHERE attributes::text LIKE '%<first 8 chars of each key>%'`), for your Gemini and Anthropic keys.
 
 **Expected:** No matches.
 
 Result: ___ Notes: ______________________
 
-**UAT-J08: Telemetry failure doesn't break generation** (§10.3) · High · *Developer-assisted*
-1. Ask a developer to make the native exporter fail. For example, revoke its database insert permission on the spans table, or point its connection at a wrong port.
+**UAT-J06: Telemetry failure doesn't break generation** (§11.3) · High · *Developer-assisted*
+1. Ask a developer to make the native exporter fail (for example, revoke its insert permission on the spans table).
 2. Run a generation.
 
-**Expected:**
-- The generation still succeeds.
-- A throttled warning appears in the logs.
-- The UI shows no error.
+**Expected:** The generation still succeeds. A throttled warning appears in the logs; the UI shows no error.
 
 Result: ___ Notes: ______________________
 
-**UAT-J09: Retention pruning** (§10.4) · Low · *Needs a configuration change*
-1. Set `PLAIN_TRACES_RETENTION_DAYS=0`.
-2. Trigger the prune job, either manually or by waiting for its schedule.
+**UAT-J07: Retention pruning** (§11.3) · Low · *Needs a configuration change*
+1. Set `PLAIN_TRACES_RETENTION_DAYS=0` in `docs_app/.env` and trigger the prune job.
 
 **Expected:** Old spans are removed and generations are unaffected. Reset the setting afterwards.
 
 Result: ___ Notes: ______________________
 
-### K. Langfuse Tracing
+### K. Choosing Trace Backends (Tuning app Settings)
 
-Precondition: fill in the `LANGFUSE_*` variables.
+**UAT-K01: Langfuse can't be chosen without credentials** (§11.2) · High
+1. With the `LANGFUSE_*` variables empty, open the Tuning app's **Settings** page.
 
-**UAT-K01: Langfuse-only backend** (§10.3) · High
-1. Set `PLAIN_TELEMETRY_BACKENDS='["langfuse"]'` and restart.
-2. Run a D01 generation.
-
-**Expected:**
-- The trace appears in Langfuse with the same structure as in J02.
-- **View trace** opens the Langfuse trace page.
-- No new rows appear in the native trace list.
+**Expected:** Langfuse is greyed out, and the page names the missing variables. Neither app fails to start.
 
 Result: ___ Notes: ______________________
 
-**UAT-K02: Filterable attributes** (§10.1) · Medium
-1. In Langfuse, filter observations by `generation_id` and `program_version`.
+**UAT-K02: Switching without a restart** (§11.2) · Critical
+1. Untick **Native** and save. Wait 10 seconds and generate D01.
+2. Tick **Native** again and save. Wait 10 seconds and generate D01 again.
 
-**Expected:** The LLM spans (not only the root span) carry these attributes and can be filtered by them.
-
-Result: ___ Notes: ______________________
-
-**UAT-K03: Feedback mirrored as a score** (§10.5) · High
-1. Give 👎 with a comment on the K01 generation.
-
-**Expected:**
-- A `user_feedback` score with the comment appears on the Langfuse trace.
-- The feedback is also saved locally, which is checked in H03.
+**Expected:** The first generation's trace never appears in the trace list and it shows no **View trace** link; the second one's does. Neither app was restarted. The Docs app's form shows each selection read-only.
 
 Result: ___ Notes: ______________________
 
-**UAT-K04: Both backends at once** (§10.3) · Medium
-1. Set `PLAIN_TELEMETRY_BACKENDS='["native","langfuse"]'`.
-2. Run a generation.
+Precondition for K03–K06: fill in the `LANGFUSE_*` variables in both apps' `.env` files and restart both apps once.
 
-**Expected:** The trace appears in both places. **View trace** links to the first backend listed.
+**UAT-K03: Langfuse only** (§11.2, §11.3) · High
+1. Select only **Langfuse** and generate D01.
+
+**Expected:** The trace appears in Langfuse with the same structure as in J02. **View trace** opens the Langfuse trace page. No new rows appear in the native trace list.
 
 Result: ___ Notes: ______________________
 
-**UAT-K05: Langfuse unreachable** (§10.3) · High
-1. Set `LANGFUSE_BASE_URL` to an unreachable host and restart.
-2. Run a generation.
+**UAT-K04: Feedback mirrored as a score** (§11.2) · High
+1. Give 👎 with a comment on the K03 generation.
+
+**Expected:** A `user_feedback` score with the comment appears on the Langfuse trace. The feedback is also saved locally.
+
+Result: ___ Notes: ______________________
+
+**UAT-K05: Both backends** (§11.2) · Medium
+1. Select **Native** and **Langfuse** and run a generation.
+
+**Expected:** The trace appears in both places. **View trace** links to the native viewer.
+
+Result: ___ Notes: ______________________
+
+**UAT-K06: Langfuse unreachable** (§11.3) · High
+1. Set `LANGFUSE_BASE_URL` to an unreachable host in both `.env` files, restart, and run a generation with Langfuse selected.
 
 **Expected:** The generation succeeds normally, with no errors or slowdown visible to the user. Restore the setting afterwards.
 
 Result: ___ Notes: ______________________
 
-**UAT-K06: No backends** (§10.3) · Low
-1. Set `PLAIN_TELEMETRY_BACKENDS='[]'`.
-2. Run a generation.
+### L. Models and Runtime Settings (Tuning app)
 
-**Expected:** The generation works. No **View trace** link is shown.
+**UAT-L01: Adding a model offers only supported parameters** (§7) · High
+1. On **Models**, click **Add model** and type `anthropic/claude-sonnet-4-5`, then change it to `gemini/gemini-3.8-flash`.
 
-Result: ___ Notes: ______________________
-
-### L. Model and Program Versions
-
-**UAT-L01: Default model recorded** (§6.2) · Medium
-1. Check any generation's details.
-
-**Expected:** The model is `gemini/gemini-3.8-flash` and the program version is `baseline`.
+**Expected:** The parameter inputs change with the model string. Gemini 3 offers **Reasoning effort** but never temperature, top p or top k. Saving stores the values typed and range-checked.
 
 Result: ___ Notes: ______________________
 
-**UAT-L02: Thinking level setting** (§6.2) · Low
-1. Set `PLAIN_LLM_THINKING_LEVEL=low` and run D01.
-2. Compare the LLM span with an earlier run.
+**UAT-L02: Test connection** (§7) · High
+1. Run **Test connection** on the seeded Gemini model, then on a model whose key variable isn't set.
 
-**Expected:** The span shows the low thinking level, and the output is still valid. Reset afterwards.
-
-Result: ___ Notes: ______________________
-
-**UAT-L03: Invalid API key** (§9 state machine) · High
-1. Set `GEMINI_API_KEY` to an invalid value and run D01.
-
-**Expected:** The generation fails with `provider_error` and a clear message. The key itself is never shown in the UI, logs, or traces. Restore the key afterwards.
+**Expected:** The first shows success with a latency. The second fails and names the missing variable. No key value appears anywhere.
 
 Result: ___ Notes: ______________________
 
-### M. Optimization Pipeline
+**UAT-L03: Activate for the Docs app** (§6.5, §7) · Critical
+1. Activate Claude Sonnet 4.5 for the Docs app, then generate D01 in the Docs app.
 
-**UAT-M01: Evaluate the baseline** (§13) · Medium
-1. Run `uv run python dspy_pipeline/optimize.py evaluate --program enrich_operations`, or the documented equivalent.
-
-**Expected:** Per-component scores (coverage, fidelity, and so on) and a total are printed for the dev set. The eval run also appears in the active trace backend.
+**Expected:** The Docs app's form shows the new model, and the generation records it. Activate Gemini again afterwards.
 
 Result: ___ Notes: ______________________
 
-**UAT-M02: Optimize and produce an artifact** (§6.3) · Medium
-1. Run the optimize command.
+**UAT-L04: Invalid API key** (§6.6) · High
+1. Set `GEMINI_API_KEY` to an invalid value in `docs_app/.env`, restart the Docs app and run D01.
 
-**Expected:** `artifacts/programs/enrich_operations/<version>.json` and a `.meta.json` are created. The meta file records the dataset hash, scores, model, thinking level, DSPy version, and date.
-
-Result: ___ Notes: ______________________
-
-**UAT-M03: App uses the new artifact** (§6.3) · High
-1. Set `PLAIN_LLM_PROGRAM_VERSION=<version>` and restart.
-2. Run D01.
-
-**Expected:** The generation records the new program version and succeeds.
+**Expected:** The generation fails with `provider_error` and a clear message. The key is never shown in the UI, logs or traces. Restore the key afterwards.
 
 Result: ___ Notes: ______________________
 
-**UAT-M04: Unknown program version** (§6.3) · Medium
-1. Set `PLAIN_LLM_PROGRAM_VERSION=does-not-exist` and restart.
+**UAT-L05: Default judge** (§9.1, D16) · Medium
+1. On **Settings**, set the default judge to the Docs app's active model.
 
-**Expected:** Startup fails with a clear message listing the available versions. It does not silently fall back to baseline. Reset afterwards.
+**Expected:** The page warns that evals of that model would grade themselves. Only models enabled for judging are offered. Restore Claude Sonnet 4.5 afterwards.
 
 Result: ___ Notes: ______________________
 
-### N. Design System Sync
+### M. Prompt Versions (Tuning app)
 
-**UAT-N01: Stale token check** (§11.1) · Low
-1. Edit `design/docs-to-ui/tokens.css` without running the sync script.
-2. Run the design sync check the same way CI does.
+**UAT-M01: Create and edit a draft** (§8) · High
+1. On **Prompts**, copy `openapi/llm/baseline` to a draft `v2`. Edit its instructions, add one few-shot example as JSON and save.
+
+**Expected:** The draft saves. Invalid JSON, or an example that doesn't match the schema, is rejected with a message and nothing saved. Active versions can't be edited.
+
+Result: ___ Notes: ______________________
+
+**UAT-M02: Diff between versions** (§9.1) · Medium
+1. On `v2`, use **Compare with** against `baseline`.
+
+**Expected:** Added and removed lines of the instructions and examples are marked.
+
+Result: ___ Notes: ______________________
+
+**UAT-M03: Promote, and the Docs app uses it** (§8, D12) · Critical
+1. Promote `v2`. Generate D01 in the Docs app.
+
+**Expected:** `v2` is active and `baseline` a candidate. The Docs app's form shows `openapi/llm/v2`, and the generation records it.
+
+Result: ___ Notes: ______________________
+
+**UAT-M04: Roll back in one click** (§8) · High
+1. On **Prompts**, click **Roll back to baseline**.
+
+**Expected:** `baseline` is active again and the Docs app uses it for its next generation. The promotion history lists the promotion and the rollback.
+
+Result: ___ Notes: ______________________
+
+**UAT-M05: Export and import** (§8) · Low
+1. Click **Download JSON** on `v2`. Change its `version` to `imported` (D20) and import it.
+
+**Expected:** It imports as a draft with source `imported`. Importing a malformed file is refused with a message.
+
+Result: ___ Notes: ______________________
+
+### N. Gold Sets (Tuning app)
+
+**UAT-N01: Starter sets** (§9.2) · Medium
+1. On **Gold sets**, click **Load starter examples** twice.
+
+**Expected:** One draft set per language appears, once; each example has a parser-seeded page.
+
+Result: ___ Notes: ______________________
+
+**UAT-N02: Add examples three ways** (§9.2) · High
+1. Create a set "UAT OpenAPI". Add D01 (paste) seeded from the parser, D03 (zip) started empty, and D02 seeded from Gemini 3.8 Flash.
+
+**Expected:** The input is read exactly as the Docs app reads it (the zip shows only its OpenAPI files). The model-seeded example shows progress and fills in its page when the worker finishes.
+
+Result: ___ Notes: ______________________
+
+**UAT-N03: Form editor** (§9.2) · High
+1. On the D01 example, change a summary, add a parameter, add an example, remove an operation, then save. Then enter a 250-character summary and save.
+
+**Expected:** Add and remove don't save until **Save expected page**. Operation IDs are derived (never typed) and shown as you edit. The long summary is rejected next to its field without saving. Each save appears in the history.
+
+Result: ___ Notes: ______________________
+
+**UAT-N04: Review, approve and split** (§9.2) · High
+1. Try to approve the empty D03 example. Approve D01. Select two examples and **Assign split** → dev.
+
+**Expected:** The empty example can't be approved. The set page counts approved examples per split and shows a content hash that changes when approved examples change.
+
+Result: ___ Notes: ______________________
+
+**UAT-N05: Import a generation and feedback** (§9.2) · High
+1. On the set page, import a finished D01 generation. Then import the 👎 feedback from H02.
+
+**Expected:** Each becomes a draft with the generation's input and page. The feedback example's notes hold the correction and the operation it was about. Imported items are marked as imported.
+
+Result: ___ Notes: ______________________
+
+**UAT-N06: Import a gold-set file** (§9.2) · Low
+1. Import a valid gold-set JSON file, then one naming a disabled language.
+
+**Expected:** The first creates the set with its examples; the second is refused with a message.
+
+Result: ___ Notes: ______________________
+
+### P. Evals and Metrics (Tuning app)
+
+**UAT-P01: Run an eval** (§9.3, D13) · Critical
+1. Approve at least 3 dev examples in "UAT OpenAPI". Start an eval run: `llm`, Gemini 3.8 Flash, the active prompt, Claude Sonnet 4.5 as judge.
+
+**Expected:** The run shows progress and then a summary: the total and every metric with a 95% interval, component accuracy by component, tokens, generation and judge cost. It records the gold-set hash and metric version.
+
+Result: ___ Notes: ______________________
+
+**UAT-P02: Example detail** (§9.3) · High
+1. Open an example of the run.
+
+**Expected:** Expected and generated pages side by side, with missing and invented operations and wrong fields marked; the judge's claims (unsupported ones marked) and prose rating; links to the gold example and the trace.
+
+Result: ___ Notes: ______________________
+
+**UAT-P03: Parser baseline and comparison** (§9.3) · High
+1. Run the same set with the `parser` strategy. Tick both runs and **Compare selected**.
+
+**Expected:** The oldest run is the baseline. Every metric and component shows its change, and each example is marked better, worse or the same.
+
+Result: ___ Notes: ______________________
+
+**UAT-P04: Failures don't stop a run** (§9.3) · High
+1. Unset `ANTHROPIC_API_KEY` in `tuning_app/.env`, restart the Tuning app, and run an eval with Claude Sonnet 4.5 as judge.
+
+**Expected:** The run finishes. Each example shows a judge error, with faithfulness's judge half and prose quality at zero. Restore the key afterwards.
+
+Result: ___ Notes: ______________________
+
+**UAT-P05: Self-judging warning** (D16) · Medium
+1. Start an eval whose judge is also the generation model (enable judging on it first).
+
+**Expected:** The form and the run page warn that the model grades its own output.
+
+Result: ___ Notes: ______________________
+
+**UAT-P06: Metric weights** (§9.5) · Medium
+1. On **Metrics**, set the prose quality weight to 0 and save. Start another eval.
+
+**Expected:** A new metric version is created and recorded on the new run; earlier runs keep theirs. Setting every weight to 0 is refused.
+
+Result: ___ Notes: ______________________
+
+**UAT-P07: Dashboard** (§9.1) · Medium
+1. Open the Tuning app's dashboard.
+
+**Expected:** It shows the Docs app's model, the default judge, the active prompts, the latest scores per language and recent runs.
+
+Result: ___ Notes: ______________________
+
+### Q. Optimization (Tuning app)
+
+**UAT-Q01: Optimize, evaluate and promote** (§9.4, D13) · High
+1. Approve at least 3 train and 2 dev examples. Start an optimization run: base `openapi/llm/baseline`, BootstrapFewShot with defaults, Gemini 3.8 Flash as task model, Claude Sonnet 4.5 as judge.
+
+**Expected:** The run shows its stage, then a trial log, a candidate `opt-<run>` with a diff against its base, and a dev-split eval run. When the eval finishes, **Promote** makes the candidate active with the eval's scores. Record the duration and cost.
+
+Result: ___ Notes: ______________________ Duration / cost: ______
+
+**UAT-Q02: Optimizer rules** (§9.4) · Medium
+1. Try COPRO with Gemini 3.8 Flash as task model. Try MIPROv2 in a development environment without the `optimize` group.
+
+**Expected:** COPRO is refused because the model doesn't accept a temperature. MIPROv2 is refused with the command that installs optuna.
+
+Result: ___ Notes: ______________________
+
+**UAT-Q03: A failing optimization** (§9.4) · Medium
+1. Unset the task model's key and start a run.
+
+**Expected:** The run fails with an error naming the missing variable. No candidate is created. Restore the key afterwards.
+
+Result: ___ Notes: ______________________
+
+### R. Containers
+
+**UAT-R01: Images build with the right contents** (§15) · High
+1. Build both images: `docker build --target docs …` and `--target tuning …`.
+2. In each, check which packages import: `docker run --rm <image> python -c "import dspy"`.
+
+**Expected:** Both build. The Docs image has no DSPy (its build fails if it does); the Tuning image has DSPy and optuna.
+
+Result: ___ Notes: ______________________
+
+**UAT-R02: Four containers, loopback only** (§15, AGENTS §0) · Critical
+1. Follow the README: sync the schema from the Tuning image, then start both web servers and both workers.
+2. Run `docker port` on both web containers, and try to reach them from another device on the network.
+
+**Expected:** Both apps load at `http://127.0.0.1:8000` and `http://127.0.0.1:8001/tuning`. A generation and a Test connection complete. Ports are published on `127.0.0.1` only and unreachable from other devices.
+
+Result: ___ Notes: ______________________
+
+### S. Design System Sync
+
+**UAT-S01: Design tokens applied** (§12) · Medium
+1. Change one color token in `design/docs-to-ui/tokens.css`, run `uv run python scripts/sync_design.py`, and reload pages in both apps.
+
+**Expected:** The change appears everywhere that token is used, in both apps. Revert the change afterwards.
+
+Result: ___ Notes: ______________________
+
+**UAT-S02: Stale token check** (§17) · Low
+1. Edit `design/docs-to-ui/tokens.css` without running the sync script, then run `uv run python scripts/sync_design.py --check`.
 
 **Expected:** The check fails and names the stale file. Revert the edit afterwards.
 
@@ -735,31 +842,36 @@ Result: ___ Notes: ______________________
 | Session | Sections | Approx. time |
 |---|---|---|
 | 1 | A, B, C | 2 h |
-| 2 | D, E, F | 2.5 h (D11 runs take a while) |
-| 3 | G, H, J | 1.5 h |
-| 4 | K, L | 1.5 h |
-| 5 | M, N | 1–2 h (depends on how long optimization takes) |
+| 2 | D, E, F, G, H | 2.5 h (D02 and D05 runs take a while) |
+| 3 | J, K, L | 2 h |
+| 4 | M, N | 2 h |
+| 5 | P, Q | 2–3 h (depends on eval and optimization run times) |
+| 6 | R, S | 1 h |
 
-Run **B01, D01, E01, G02, and J02** first as a smoke test. If any of them fails, stop and report before continuing.
+Run **A01, B01, D01, E01, G02, J02, L03 and P01** first as a smoke test. If any of them fails, stop and report before continuing.
 
 ## 7. Results Summary
 
 | Section | Cases | Pass | Fail | Blocked | N/A |
 |---|---|---|---|---|---|
-| A. Setup and Configuration | 5 | | | | |
+| A. Setup and Configuration | 6 | | | | |
 | B. Input Handling | 14 | | | | |
 | C. Zip Safety | 5 | | | | |
-| D. Generation Job and Status UI | 7 | | | | |
+| D. Generation Job and Status UI | 9 | | | | |
 | E. Doc Page Content | 10 | | | | |
-| F. Interactivity and Styling | 6 | | | | |
-| G. Export | 5 | | | | |
-| H. Feedback | 3 | | | | |
-| J. Native Tracing | 9 | | | | |
-| K. Langfuse Tracing | 6 | | | | |
-| L. Model and Program Versions | 3 | | | | |
-| M. Optimization Pipeline | 4 | | | | |
-| N. Design System Sync | 1 | | | | |
-| **Total** | **78** | | | | |
+| F. Interactivity and Styling | 5 | | | | |
+| G. Export | 4 | | | | |
+| H. Feedback | 2 | | | | |
+| J. Native Tracing | 7 | | | | |
+| K. Choosing Trace Backends | 6 | | | | |
+| L. Models and Runtime Settings | 5 | | | | |
+| M. Prompt Versions | 5 | | | | |
+| N. Gold Sets | 6 | | | | |
+| P. Evals and Metrics | 7 | | | | |
+| Q. Optimization | 3 | | | | |
+| R. Containers | 2 | | | | |
+| S. Design System Sync | 2 | | | | |
+| **Total** | **98** | | | | |
 
 **Open defects**
 
@@ -782,17 +894,17 @@ python -c "import zipfile; z=zipfile.ZipFile('zip-slip.zip','w'); z.writestr('..
 # D14: symlink entry (Unix permission bits mark it as a link)
 python -c "import zipfile; i=zipfile.ZipInfo('link.py'); i.external_attr=(0o120777<<16); z=zipfile.ZipFile('zip-symlink.zip','w'); z.writestr(i,'/etc/passwd'); z.close()"
 
-# D15: ~60 MB of zeros, compresses to well under 5 MB
+# D15: ~60 MB of zeros, compresses to well under 1 MB
 python -c "import zipfile; z=zipfile.ZipFile('zip-bomb.zip','w',zipfile.ZIP_DEFLATED); z.writestr('big.py', b'#'*60_000_000); z.close()"
 
 # D16: 5,001 tiny entries
-python -c "import zipfile; z=zipfile.ZipFile('zip-many.zip','w'); [z.writestr(f'm{i}.py','x=1\n') for i in range(5001)]; z.close()"
+python -c "import zipfile; z=zipfile.ZipFile('zip-many.zip','w',zipfile.ZIP_DEFLATED); [z.writestr(f'm{i}.py','x=1\n') for i in range(5001)]; z.close()"
 
-# D12: ~5.2 MB file
-python -c "open('too-large.json','w').write('{\"pad\":\"' + 'a'*5_450_000 + '\"}')"
+# D12: ~1.2 MB file
+python -c "open('too-large.json','w').write('{\"pad\":\"' + 'a'*1_250_000 + '\"}')"
 
 # Non-UTF-8 Python file for D17
 python -c "open('latin1.py','wb').write('# caf\xe9\nx = 1\n'.encode('latin-1'))"
 ```
 
-For **D11** (large OpenAPI), generate a spec with a few hundred operations and long descriptions, or use a large real public spec. Check that the file is between 4 and 5 MB.
+For **D11** (large OpenAPI), generate a spec with a few hundred operations and long descriptions, or trim a large real public spec, so the file is between 850 and 1,000 KB. For **D19**, zip two small, unrelated OpenAPI documents under `v1/` and `v2/`.
