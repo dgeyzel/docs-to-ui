@@ -1,3 +1,4 @@
+import json
 from io import BytesIO
 
 import pytest
@@ -73,6 +74,19 @@ def test_pasted_json_is_detected_without_a_language() -> None:
 
     generation = only_generation()
     assert generation.status == "succeeded"
+    assert generation.language == "openapi"
+
+
+def test_pasted_json_with_escaped_emoji_is_documented() -> None:
+    document = json.loads(NOTES_JSON)
+    document["info"]["description"] = "Notes with reactions 👍"
+    text = json.dumps(document, indent=2)
+    assert "\\ud83d\\udc4d" in text
+
+    Client().post("/generations", data={"text": text, "language": ""})
+
+    generation = only_generation()
+    assert generation.status == "succeeded", generation.error_detail
     assert generation.language == "openapi"
 
 

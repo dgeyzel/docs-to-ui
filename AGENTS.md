@@ -68,6 +68,7 @@ Plain resolves its app as `./app`, so app commands run inside a project director
 | Framework docs for a package | `uv run plain docs <package>` (e.g. `plain docs jobs`) |
 | Sync Plain's own agent rules | `uv run plain agent install` (writes to `.claude/rules/` and `.claude/skills/`) |
 | Sync design tokens | `uv run python scripts/sync_design.py` |
+| Generate a page through the Docs app's API (app and worker running) | `uv run python scripts/d2u_client.py generate <file> --out page.json --insecure` |
 
 Why the commands are split:
 - `plain.pytest` boots a Plain app, so tests run from an app directory. The Docs app also runs the shared library's tests, because the DB-backed ones need an app with the `d2u` packages installed.

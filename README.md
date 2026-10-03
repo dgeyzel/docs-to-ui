@@ -10,6 +10,7 @@ A single-user, local developer tool that turns an OpenAPI document or a Python c
   - [Generating documentation](#generating-documentation)
   - [The doc page](#the-doc-page)
   - [Export](#export)
+  - [JSON API](#json-api)
   - [Feedback](#feedback)
   - [Tracing](#tracing)
   - [Models and prompts](#models-and-prompts)
@@ -41,6 +42,7 @@ A single-user, local developer tool that turns an OpenAPI document or a Python c
   - [12. Manage prompt versions](#12-manage-prompt-versions)
   - [13. Optimize a prompt with DSPy](#13-optimize-a-prompt-with-dspy)
   - [14. Switch themes](#14-switch-themes)
+  - [15. Use the JSON API](#15-use-the-json-api)
 - [Project Structure](#project-structure)
 - [How It Works](#how-it-works)
   - [Request flow](#request-flow)
@@ -124,6 +126,13 @@ Models and prompt versions are managed in the Tuning app (see [Models and prompt
 
 - **HTML:** one self-contained file with every style and script inlined. It makes no network requests and works when opened straight from disk. It has no feedback controls, theme toggle or app links.
 - **JSON:** the raw `DocPage` data behind the page.
+
+### JSON API
+
+- Everything the page offers, for scripts: submit a file, zip or text, poll or wait, then fetch the `DocPage` JSON or the standalone HTML
+- List generations, regenerate, and send feedback
+- An OpenAPI 3.1 description of the API at `/api/v1/openapi.json`
+- `scripts/d2u_client.py`, a standard-library client that uploads, waits and saves the files
 
 ### Feedback
 
@@ -237,6 +246,7 @@ PLAIN_GENERATIONS_FAKE_RESPONSES=tests/fixtures/llm/fake.json
 | `PLAIN_GENERATIONS_MAX_CONCURRENCY` | `4` | Parallel calls when an input is split, or for `hybrid` batches. |
 | `PLAIN_GENERATIONS_ENABLE_HYBRID` | `false` | Offer the `hybrid` strategy in the Docs app's form. |
 | `PLAIN_GENERATIONS_FAKE_RESPONSES` | `""` | Fixture file for the fake model (tests), relative to the repository root. |
+| `PLAIN_API_MAX_WAIT_S` | `60` | Longest a JSON API request may wait for a generation to finish. |
 | `PLAIN_SOURCES_ENABLED_ADAPTERS` | `["openapi","python"]` | Enabled language adapters. |
 | `PLAIN_SOURCES_ZIP_MAX_UNCOMPRESSED_BYTES` | `52428800` | Total bytes a zip may expand to (50 MB). |
 | `PLAIN_SOURCES_ZIP_MAX_FILE_BYTES` | `5242880` | Largest file inside a zip (5 MB). |
@@ -434,6 +444,45 @@ MIPROv2 needs optuna, which isn't installed by default: `uv sync --all-packages 
 
 Click **Toggle theme** in the header. The choice is remembered in your browser. Exported pages follow the reader's system setting.
 
+### 15. Use the JSON API
+
+The Docs app serves a JSON API under `/api/v1/` (SPEC §12.1). Like the rest of the app it listens on `127.0.0.1` only and has no authentication. Generation is asynchronous: a submission answers `202` at once, and you poll, or pass `wait=<seconds>` (capped by `PLAIN_API_MAX_WAIT_S`) to block until the page is ready. The examples use `-k` because the dev server's certificate is local; drop it if you trust mkcert's CA.
+
+```bash
+# Upload a file (or a zip, adding -F entry=api/openapi.yaml if it holds several specs)
+curl -k -F file=@tests/fixtures/openapi/petstore-3.0.yaml https://localhost:8443/api/v1/generations
+
+# Or send pasted text as JSON
+curl -k -H 'Content-Type: application/json' -d '{"text": "openapi: 3.0.0 ..."}' \
+  https://localhost:8443/api/v1/generations
+
+# Wait up to 60 s for the page and save it (409 not_ready if it isn't done, 422 if it failed)
+curl -k "https://localhost:8443/api/v1/generations/<id>/page?wait=60" -o page.json
+curl -k https://localhost:8443/api/v1/generations/<id>/page.html -o page.html
+```
+
+| Method and path | Does |
+| --- | --- |
+| `POST /api/v1/generations` | Start a generation (multipart `file` or `text`, plus `language`, `entry`, `strategy`; or JSON `text`) |
+| `GET /api/v1/generations?status=&limit=` | List generations, newest first |
+| `GET /api/v1/generations/<id>?wait=` | Status, input metadata, usage, error and links |
+| `GET /api/v1/generations/<id>/page?wait=` | The `DocPage` JSON (the same as **Export JSON**) |
+| `GET /api/v1/generations/<id>/page.html` | The standalone HTML (the same as **Export HTML**) |
+| `POST /api/v1/generations/<id>/regenerate` | Rerun the same input |
+| `POST /api/v1/generations/<id>/feedback` | JSON `{"operation_id": "GET /pets", "score": 1, "comment": ""}`; omit `operation_id` for the whole page |
+| `GET /api/v1/openapi.json` | The OpenAPI description of all of this |
+
+Errors share one shape: `{"error": {"code": ..., "message": ..., "fields": ..., "generation": ...}}`.
+
+The client script does the upload, the waiting and the saving in one step:
+
+```bash
+uv run python scripts/d2u_client.py generate tests/fixtures/openapi/petstore-3.0.yaml \
+  --out page.json --html page.html --insecure
+```
+
+It exits `0` when the files are written, `1` when the input is refused or the generation fails (printing the error and its file and line), and `3` on timeout. `--base-url` points it at another server; `--ca-file` trusts a CA instead of `--insecure`.
+
 ## Project Structure
 
 ```
@@ -459,7 +508,8 @@ docs-to-ui/
 │   └── app/
 │       ├── settings.py, urls.py
 │       ├── templates/           App shell and app-specific elements
-│       └── generate/            Form, pipeline, GenerateDocJob, views, export, presentation
+│       ├── generate/            Form, pipeline, GenerateDocJob, views, export, presentation
+│       └── api/                 JSON API under /api/v1/, its OpenAPI description
 ├── tuning_app/                  The Tuning app (Plain project "tuning")
 │   ├── pyproject.toml           Dependencies (DSPy), optional optimize group, test paths
 │   ├── .env.example, .env.test
@@ -519,7 +569,7 @@ Every operation and parameter gets an ID derived only from the input: `GET /pets
 
 ### OpenAPI handling
 
-Documents are parsed with a safe YAML loader that keeps node positions, so every error and operation has a line number. Internal `$ref`s and relative file refs are followed within the bundle only. Remote refs, absolute paths and refs that climb above the bundle root are rejected, and nothing is ever fetched. Cycles are caught, and walking a document is protected against YAML alias bombs.
+Documents are parsed with a safe YAML loader that keeps node positions, so every error and operation has a line number. Internal `$ref`s and relative file refs are followed within the bundle only. Remote refs, absolute paths and refs that climb above the bundle root are rejected, and nothing is ever fetched. Cycles are caught, and walking a document is protected against YAML alias bombs. JSON is read with the same loader; in valid JSON, emoji and other characters written as `\uXXXX` surrogate-pair escapes (the default output of `json.dumps`) are decoded first, because PyYAML rejects them, and invalid JSON with such escapes is reported at the line where the JSON breaks.
 
 ### Python handling
 
@@ -611,7 +661,8 @@ Tests never call a real LLM: database tests make a fake model active, which answ
 ### Test structure
 
 ```
-tests/shared/              The d2u library: adapters (including the contract suite), zip safety,
+tests/shared/              The d2u library: adapters (including the contract suite and escaped
+                           emoji in JSON), the API client script, zip safety,
                            input intake, LiteLLM client, prompts, splitting, ID derivation and its
                            inverse, strategies and the bundle runner, parameter offers, registry,
                            exporter mapping, trace viewer logic, backend availability, routing
@@ -619,7 +670,8 @@ tests/shared/              The d2u library: adapters (including the contract sui
 tests/docs_app/            Docs app: presentation, sanitizer, job states and failures, strategies, zips,
                            the no-DSPy guard,
                            feedback and mirroring, native export and trace viewer, telemetry
-                           wiring (one trace ID), runtime backend switching, read-only selection
+                           wiring (one trace ID), runtime backend switching, read-only selection,
+                           the JSON API, its wait loop and its OpenAPI description
 tests/tuning_app/          Tuning app skeleton, Settings page, model registry and Test connection,
                            job queues, prompt versions (drafts, diff, promotion, rollback),
                            gold sets, feedback import and the expected-page editor, optimizers, program export,
@@ -627,7 +679,7 @@ tests/tuning_app/          Tuning app skeleton, Settings page, model registry an
                            summaries, page diffs, run comparison, eval runs (states, failures, judge
                            errors, spans), result and comparison pages, dashboard, metric versions
 tests/e2e/                 Paste, zip upload, progress, failure and retry, trace viewer,
-                           example tabs and copy, feedback, exports opened from disk (docs/);
+                           example tabs and copy, feedback, exports opened from disk, the API client (docs/);
                            switching trace backends, adding and testing a model, curating
                            and seeding gold examples, running, inspecting and comparing evals,
                            promoting a prompt the Docs app then uses, and rolling it back,

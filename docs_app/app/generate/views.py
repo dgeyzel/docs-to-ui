@@ -5,9 +5,8 @@ from d2u.registry.lookups import active_model, active_prompt_labels, trace_backe
 from d2u.schemas.docpage import DocPage
 from d2u.sources.bundle import FileManifest
 from d2u.sources.registry import display_name
-from d2u.telemetry.api import record_feedback, trace_url
+from d2u.telemetry.api import trace_url
 from d2u.telemetry.config import selection_summary
-from d2u.telemetry.events import FeedbackEvent
 from d2u.traces.queries import generation_trace_totals
 from plain.http import NotFoundError404, RedirectResponse, Response
 from plain.runtime import settings
@@ -17,7 +16,9 @@ from plain.urls import reverse
 from plain.views import View
 
 from app.generate.export import export_filename, render_export_html
+from app.generate.feedback import is_known_operation, submit_feedback
 from app.generate.forms import FeedbackForm, SourceForm, format_megabytes
+from app.generate.lookups import get_generation_or_404, succeeded_page_or_404
 from app.generate.pipeline import create_generation, enqueue_generation, regenerate
 from app.generate.presentation import (
     build_error_view,
@@ -30,19 +31,6 @@ from app.generate.presentation import (
 RECENT_GENERATIONS_LIMIT = 20
 # HTMX stops polling when a response has this status.
 HTMX_STOP_POLLING = 286
-
-
-def _get_generation(url_kwargs: dict[str, Any]) -> Generation:
-    generation = Generation.query.get_or_none(int(url_kwargs["id"]))
-    if generation is None:
-        raise NotFoundError404()
-    return generation
-
-
-def _succeeded_page(generation: Generation) -> DocPage:
-    if generation.status != GenerationStatus.SUCCEEDED or generation.doc_json is None:
-        raise NotFoundError404()
-    return DocPage.model_validate(generation.doc_json)
 
 
 def _detail_url(generation: Generation) -> str:
@@ -88,7 +76,7 @@ class GenerationDetailView(TemplateView):
 
     def get_template_context(self) -> dict[str, Any]:
         context = super().get_template_context()
-        generation = _get_generation(self.url_kwargs)
+        generation = get_generation_or_404(self.url_kwargs)
         context["generation"] = generation
         context["status"] = build_status_view(generation)
         context["error"] = build_error_view(
@@ -117,7 +105,7 @@ class GenerationStatusView(View):
     """The polled status fragment for a pending or running generation."""
 
     def get(self) -> Response:
-        generation = _get_generation(self.url_kwargs)
+        generation = get_generation_or_404(self.url_kwargs)
         if generation.status == GenerationStatus.SUCCEEDED:
             return Response(headers={"HX-Redirect": _detail_url(generation)})
         if generation.status == GenerationStatus.FAILED:
@@ -141,7 +129,7 @@ class RegenerateView(View):
     """Start a new generation from another generation's stored input."""
 
     def post(self) -> Response:
-        original = _get_generation(self.url_kwargs)
+        original = get_generation_or_404(self.url_kwargs)
         generation = regenerate(original)
         enqueue_generation(generation)
         return RedirectResponse(_detail_url(generation), status_code=302)
@@ -151,23 +139,19 @@ class FeedbackView(View):
     """Record feedback on a page or one operation, then return to it."""
 
     def post(self) -> Response:
-        generation = _get_generation(self.url_kwargs)
-        page = _succeeded_page(generation)
+        generation = get_generation_or_404(self.url_kwargs)
+        page = succeeded_page_or_404(generation)
         form = FeedbackForm(request=self.request)
         if not form.is_valid():
             return Response("Invalid feedback.", status_code=400)
         operation_id = form.cleaned_data["operation_id"] or None
-        known = {op.id for op in page.surface.operations}
-        if operation_id is not None and operation_id not in known:
+        if not is_known_operation(page, operation_id):
             raise NotFoundError404()
-        record_feedback(
+        submit_feedback(
             generation,
-            FeedbackEvent(
-                generation_id=generation.id,
-                operation_id=operation_id,
-                score=form.cleaned_data["score"],
-                comment=(form.cleaned_data["comment"] or "").strip(),
-            ),
+            operation_id=operation_id,
+            score=form.cleaned_data["score"],
+            comment=form.cleaned_data["comment"] or "",
         )
         anchor = form.cleaned_data["anchor"]
         fragment = f"#feedback-{anchor}" if anchor else ""
@@ -176,8 +160,8 @@ class FeedbackView(View):
 
 class ExportHtmlView(View):
     def get(self) -> Response:
-        generation = _get_generation(self.url_kwargs)
-        page = _succeeded_page(generation)
+        generation = get_generation_or_404(self.url_kwargs)
+        page = succeeded_page_or_404(generation)
         html = render_export_html(
             page_view=build_page_view(
                 page=page, language_display=display_name(generation.language)
@@ -196,8 +180,8 @@ class ExportHtmlView(View):
 
 class ExportJsonView(View):
     def get(self) -> Response:
-        generation = _get_generation(self.url_kwargs)
-        page = _succeeded_page(generation)
+        generation = get_generation_or_404(self.url_kwargs)
+        page = succeeded_page_or_404(generation)
         return Response(
             page.model_dump_json(indent=2),
             content_type="application/json",

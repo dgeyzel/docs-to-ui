@@ -34,6 +34,14 @@ class SourceForm(forms.Form):
         required=False,
     )
 
+    def parse_text(self) -> str:
+        # Optional in submitted data: API callers often send only a file.
+        return self.data.get("text", "")
+
+    def parse_language(self) -> str:
+        # Optional in submitted data: absent means auto-detect.
+        return self.data.get("language", "")
+
     def parse_entry(self) -> str:
         # Optional in submitted data: older clients and scripts may omit it.
         return self.data.get("entry", "")

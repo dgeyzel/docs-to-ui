@@ -20,6 +20,7 @@ INSTALLED_PACKAGES = [
     "d2u.ui",
     # Local packages.
     "app.generate",
+    "app.api",
 ]
 
 JOBS_SCHEDULE = [

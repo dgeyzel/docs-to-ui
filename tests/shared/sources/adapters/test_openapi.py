@@ -1,3 +1,4 @@
+import json
 from itertools import pairwise
 
 import pytest
@@ -342,3 +343,86 @@ def test_extract_rejects_several_entry_files(adapter: OpenApiAdapter) -> None:
 def test_extract_requires_an_openapi_file(adapter: OpenApiAdapter) -> None:
     with pytest.raises(InputError, match="No OpenAPI file"):
         adapter.extract(bundle_of("client.py", "def f(): pass\n"))
+
+
+def emoji_document(**extra: str) -> dict:
+    return {
+        "openapi": "3.1.0",
+        "info": {"title": "Reactions 👍 API", "version": "1"},
+        "paths": {
+            "/reactions": {
+                "post": {"summary": "Add a 🎉 reaction", **extra},
+            }
+        },
+    }
+
+
+@pytest.mark.parametrize("ensure_ascii", [True, False])
+def test_extract_reads_json_with_emoji_however_it_is_escaped(
+    adapter: OpenApiAdapter, ensure_ascii: bool
+) -> None:
+    # json.dumps writes characters outside the BMP as \uXXXX surrogate pairs,
+    # which YAML rejects; the document is still valid JSON.
+    text = json.dumps(emoji_document(), indent=2, ensure_ascii=ensure_ascii)
+
+    adapter.check_syntax(bundle_of("api.json", text))
+    surface = adapter.extract(bundle_of("api.json", text))
+
+    assert surface.title == "Reactions 👍 API"
+    assert surface.operations[0].source_description == "Add a 🎉 reaction"
+
+
+def test_pasted_json_with_escaped_emoji_is_read_under_a_yaml_name(
+    adapter: OpenApiAdapter,
+) -> None:
+    # Pasted text is named input.yaml whatever its format.
+    text = json.dumps(emoji_document())
+
+    surface = adapter.extract(bundle_of("input.yaml", text))
+
+    assert surface.title == "Reactions 👍 API"
+
+
+def test_escaped_backslashes_before_u_stay_literal(adapter: OpenApiAdapter) -> None:
+    literal = "\\ud83d\\udc4d"
+    text = json.dumps(emoji_document(description=literal))
+
+    surface = adapter.extract(bundle_of("api.json", text))
+
+    description = surface.operations[0].source_description
+    assert description is not None
+    assert description.endswith(literal)
+
+
+def test_yaml_plain_scalars_that_look_like_escapes_are_untouched(
+    adapter: OpenApiAdapter,
+) -> None:
+    text = (
+        "openapi: 3.0.0\ninfo: {title: T, version: '1'}\npaths:\n"
+        "  /a:\n    get:\n      summary: \\ud83d\\udc4d\n"
+    )
+
+    surface = adapter.extract(bundle_of("api.yaml", text))
+
+    assert surface.operations[0].source_description == "\\ud83d\\udc4d"
+
+
+def test_json_with_a_lone_surrogate_is_an_input_error_with_its_line(
+    adapter: OpenApiAdapter,
+) -> None:
+    text = '{\n  "openapi": "3.0.0",\n  "info": {"title": "\\ud83d", "version": "1"}\n}'
+
+    with pytest.raises(InputError, match="Invalid YAML/JSON") as excinfo:
+        adapter.extract(bundle_of("api.json", text))
+
+    assert excinfo.value.line == 3
+
+
+def test_errors_after_escaped_emoji_keep_their_line(adapter: OpenApiAdapter) -> None:
+    lines = json.dumps(emoji_document(), indent=2).splitlines()
+    text = "\n".join([*lines[:-1], "  ,]", lines[-1]])
+
+    with pytest.raises(InputError, match="Invalid JSON") as excinfo:
+        adapter.extract(bundle_of("api.json", text))
+
+    assert excinfo.value.line == len(lines)

@@ -22,6 +22,9 @@ This plan confirms that Docs-to-UI does what `SPEC.md` promises, from the point 
 - gold sets, eval runs, metrics and run comparison
 - DSPy optimization and promotion
 
+**Docs app JSON API**
+- submitting, waiting and fetching pages through `/api/v1/`, its errors, and the client script
+
 **Both**
 - tracing (native and Langfuse, chosen in the UI)
 - containers
@@ -85,6 +88,8 @@ Prepare these files in a `uat-data/` folder outside the repository before starti
 | D18 | `mixed-lang.zip` | Python package plus an `openapi.yaml` |
 | D19 | `two-entries.zip` | Two independent OpenAPI documents, `v1/openapi.yaml` and `v2/openapi.yaml` |
 | D20 | `prompt-v2.json` | A prompt version export (made in M05) with its `version` changed to `imported` |
+| D21 | `emoji-escaped.json` | Small OpenAPI 3.1 JSON spec whose title and a summary contain emoji, written as `\uXXXX` escapes (how `json.dumps` writes them) |
+| D22 | `emoji-broken.json` | D21 with a JSON syntax error added near the end, on a known line |
 
 ---
 
@@ -240,6 +245,21 @@ Result: ___ Notes: ______________________
 2. Paste more than 1 MB of text.
 
 **Expected:** Both are rejected at the form with a clear size message. No generation is created; the history list is unchanged.
+
+Result: ___ Notes: ______________________
+
+**UAT-B15: JSON with escaped emoji** (§10) · High
+1. Upload D21 without setting a language.
+2. Paste the contents of D21 and submit.
+
+**Expected:** Both are detected as OpenAPI and succeed, with one operation, `POST /reactions`. (Before R7 both failed with *Invalid YAML/JSON: found invalid Unicode character escape code*.)
+
+Result: ___ Notes: ______________________
+
+**UAT-B16: Broken JSON with escaped emoji** (§10) · Medium
+1. Upload D22.
+
+**Expected:** The generation fails with **Input error**, an **Invalid JSON** message, and the line where the JSON actually breaks, not the line of the first emoji.
 
 Result: ___ Notes: ______________________
 
@@ -835,6 +855,115 @@ Result: ___ Notes: ______________________
 
 Result: ___ Notes: ______________________
 
+### T. JSON API (Docs app)
+
+Run these from the WSL shell, with the Docs app and its worker running (`uv run --directory docs_app plain dev --hostname localhost --port 8443`). `-k` skips the check of the dev server's local certificate. `python3 -m json.tool` pretty-prints a response. `<id>` is the `id` from the response to the submission.
+
+**UAT-T01: Upload a file, wait, save the page** (§12.1) · Critical
+1. `curl -k -i -F file=@uat-data/petstore-3.0.json https://localhost:8443/api/v1/generations`
+2. `curl -k "https://localhost:8443/api/v1/generations/<id>/page?wait=60" -o page.json`
+3. Open the generation in the browser using the `links.ui` path from step 1.
+
+**Expected:** Step 1 answers `202` at once, with a `Location` header and a body with `"status": "pending"` and `links`; the body never contains the uploaded text. Step 2 writes valid JSON with `schema_version`, `surface`, `overview` and `operations`, the same content as **Export JSON** on the page from step 3.
+
+Result: ___ Notes: ______________________
+
+**UAT-T02: Submit pasted text as JSON** (§12.1) · High
+1. `python3 -c "import json; print(json.dumps({'text': open('uat-data/service-3.1.yaml').read()}))" > body.json`
+2. `curl -k -H 'Content-Type: application/json' --data @body.json https://localhost:8443/api/v1/generations`
+3. Fetch its page with `wait=60`.
+
+**Expected:** `202`, `"origin": "paste"`, and the page arrives.
+
+Result: ___ Notes: ______________________
+
+**UAT-T03: Zip with an entry file** (§12.1, §10) · High
+1. Submit D19 with `-F file=@uat-data/two-entries.zip` and no entry, and wait for its page.
+2. Submit it again with `-F entry=v2/openapi.yaml` added, and wait for its page.
+
+**Expected:** The first page request answers `422 generation_failed`, and its `generation.error` asks for an entry file. The second succeeds and documents only `v2`.
+
+Result: ___ Notes: ______________________
+
+**UAT-T04: Invalid submissions** (§12.1) · High
+1. POST with no file and no text: `curl -k -X POST -F language= https://localhost:8443/api/v1/generations`.
+2. POST both a file and `-F text=x`.
+3. POST D12 (over 1 MB).
+4. POST D01 with `-F language=cobol`.
+
+**Expected:** Each answers `400` with `"code": "invalid_input"`, a clear `message`, and `fields` naming the problem field where there is one. No generation is created; `GET /api/v1/generations` is unchanged.
+
+Result: ___ Notes: ______________________
+
+**UAT-T05: Pending and failed pages** (§12.1) · High
+1. Submit D02 and immediately request its page **without** `wait`.
+2. Submit D05 and request its page with `wait=60`.
+
+**Expected:** Step 1 answers `409` with `"code": "not_ready"` and the generation's current status. Step 2 answers `422` with `"code": "generation_failed"`; `generation.error` has `input_error`, the file name and the line.
+
+Result: ___ Notes: ______________________
+
+**UAT-T06: The wait is capped** (§12.1, §16) · Medium
+1. Set `PLAIN_API_MAX_WAIT_S=5` in `docs_app/.env` and restart the Docs app.
+2. Submit D11 (the slow, large spec) and time `curl -k -o /dev/null -w '%{http_code}\n' ".../generations/<id>/page?wait=60"`.
+3. Remove the setting and restart afterwards.
+
+**Expected:** The request returns after about 5 seconds with `409`, not 60. `wait=abc` and `wait=-1` answer `400`.
+
+Result: ___ Notes: ______________________
+
+**UAT-T07: HTML through the API** (§12.1, §12) · Medium
+1. `curl -k https://localhost:8443/api/v1/generations/<id>/page.html -o page.html` for a succeeded generation.
+2. Stop the apps and open `page.html` from disk in the Windows browser (`\\wsl.localhost\Ubuntu\…`).
+
+**Expected:** The same self-contained page as **Export HTML** (cases G02–G03). For a pending or unknown id the request answers `404` in JSON.
+
+Result: ___ Notes: ______________________
+
+**UAT-T08: List and filter** (§12.1) · Medium
+1. `GET /api/v1/generations`, then `?status=failed`, then `?limit=1`.
+2. Try `?status=done` and `?limit=500`.
+
+**Expected:** Newest first; the filter returns only failed generations; `limit=1` returns one. The bad values answer `400` with `"code": "bad_request"`.
+
+Result: ___ Notes: ______________________
+
+**UAT-T09: Regenerate and feedback** (§12.1, §11.2) · Medium
+1. `curl -k -X POST https://localhost:8443/api/v1/generations/<id>/regenerate`
+2. On a succeeded generation: `curl -k -H 'Content-Type: application/json' -d '{"operation_id": "<an operation id from surface.operations>", "score": -1, "comment": "Wrong example"}' .../generations/<id>/feedback`
+3. Send `{"score": 0}`, then an unknown `operation_id`.
+4. Reload that generation's page in the browser.
+
+**Expected:** Step 1 answers `202` with a new id and the same `input.sha256`. Step 2 answers `201`. Step 3 answers `400 invalid_input` and `404 not_found`. The page shows the 👎 on that operation, and it can be imported into a gold set like UI feedback (section N).
+
+Result: ___ Notes: ______________________
+
+**UAT-T10: The API documents itself** (§12.1) · Medium
+1. `curl -k https://localhost:8443/api/v1/openapi.json -o d2u-api.json`
+2. Upload `d2u-api.json` to the Docs app in the browser.
+
+**Expected:** Valid OpenAPI 3.1 listing all eight operations. The generated page documents them, including the 👍 / 👎 wording, with emoji intact.
+
+Result: ___ Notes: ______________________
+
+**UAT-T11: Client script** (§12.1) · High
+1. `uv run python scripts/d2u_client.py generate uat-data/petstore-3.0.json --out page.json --html page.html --insecure; echo $?`
+2. The same with `uat-data/broken.yaml` (D05).
+3. The same with `--timeout 1` on D11.
+4. The same with the Docs app stopped.
+
+**Expected:** Step 1 exits `0` and writes both files. Step 2 exits `1` and prints `input_error (broken.yaml:<line>)`. Step 3 exits `3` with a timeout message. Step 4 exits `1` with "Could not reach the Docs app". None of them leaves a partial `page.json` behind on failure.
+
+Result: ___ Notes: ______________________
+
+**UAT-T12: Local only, and refused from web pages** (§2, §12.1, AGENTS §0) · Critical
+1. `ss -ltnp | grep 8443` in WSL.
+2. `curl -k -i -H 'Sec-Fetch-Site: cross-site' -H 'Content-Type: application/json' -d '{"text": "x"}' https://localhost:8443/api/v1/generations`
+
+**Expected:** The server listens on `127.0.0.1` only. Step 2 is refused with `400` and creates no generation, as a browser page on another site would be.
+
+Result: ___ Notes: ______________________
+
 ---
 
 ## 6. Suggested Execution Order
@@ -847,15 +976,16 @@ Result: ___ Notes: ______________________
 | 4 | M, N | 2 h |
 | 5 | P, Q | 2–3 h (depends on eval and optimization run times) |
 | 6 | R, S | 1 h |
+| 7 | T | 1.5 h |
 
-Run **A01, B01, D01, E01, G02, J02, L03 and P01** first as a smoke test. If any of them fails, stop and report before continuing.
+Run **A01, B01, D01, E01, G02, J02, L03, P01 and T01** first as a smoke test. If any of them fails, stop and report before continuing.
 
 ## 7. Results Summary
 
 | Section | Cases | Pass | Fail | Blocked | N/A |
 |---|---|---|---|---|---|
 | A. Setup and Configuration | 6 | | | | |
-| B. Input Handling | 14 | | | | |
+| B. Input Handling | 16 | | | | |
 | C. Zip Safety | 5 | | | | |
 | D. Generation Job and Status UI | 9 | | | | |
 | E. Doc Page Content | 10 | | | | |
@@ -871,7 +1001,8 @@ Run **A01, B01, D01, E01, G02, J02, L03 and P01** first as a smoke test. If any 
 | Q. Optimization | 3 | | | | |
 | R. Containers | 2 | | | | |
 | S. Design System Sync | 2 | | | | |
-| **Total** | **98** | | | | |
+| T. JSON API | 12 | | | | |
+| **Total** | **112** | | | | |
 
 **Open defects**
 
@@ -889,22 +1020,28 @@ Run each command from inside `uat-data/`. They only create files there.
 
 ```bash
 # D13: zip-slip entry
-python -c "import zipfile; z=zipfile.ZipFile('zip-slip.zip','w'); z.writestr('../../evil.py','x = 1\n'); z.close()"
+python3 -c "import zipfile; z=zipfile.ZipFile('zip-slip.zip','w'); z.writestr('../../evil.py','x = 1\n'); z.close()"
 
 # D14: symlink entry (Unix permission bits mark it as a link)
-python -c "import zipfile; i=zipfile.ZipInfo('link.py'); i.external_attr=(0o120777<<16); z=zipfile.ZipFile('zip-symlink.zip','w'); z.writestr(i,'/etc/passwd'); z.close()"
+python3 -c "import zipfile; i=zipfile.ZipInfo('link.py'); i.external_attr=(0o120777<<16); z=zipfile.ZipFile('zip-symlink.zip','w'); z.writestr(i,'/etc/passwd'); z.close()"
 
 # D15: ~60 MB of zeros, compresses to well under 1 MB
-python -c "import zipfile; z=zipfile.ZipFile('zip-bomb.zip','w',zipfile.ZIP_DEFLATED); z.writestr('big.py', b'#'*60_000_000); z.close()"
+python3 -c "import zipfile; z=zipfile.ZipFile('zip-bomb.zip','w',zipfile.ZIP_DEFLATED); z.writestr('big.py', b'#'*60_000_000); z.close()"
 
 # D16: 5,001 tiny entries
-python -c "import zipfile; z=zipfile.ZipFile('zip-many.zip','w',zipfile.ZIP_DEFLATED); [z.writestr(f'm{i}.py','x=1\n') for i in range(5001)]; z.close()"
+python3 -c "import zipfile; z=zipfile.ZipFile('zip-many.zip','w',zipfile.ZIP_DEFLATED); [z.writestr(f'm{i}.py','x=1\n') for i in range(5001)]; z.close()"
 
 # D12: ~1.2 MB file
-python -c "open('too-large.json','w').write('{\"pad\":\"' + 'a'*1_250_000 + '\"}')"
+python3 -c "open('too-large.json','w').write('{\"pad\":\"' + 'a'*1_250_000 + '\"}')"
 
 # Non-UTF-8 Python file for D17
-python -c "open('latin1.py','wb').write('# caf\xe9\nx = 1\n'.encode('latin-1'))"
+python3 -c "open('latin1.py','wb').write('# caf\xe9\nx = 1\n'.encode('latin-1'))"
+
+# D21: emoji written as \uXXXX escapes, as json.dumps does by default
+python3 -c "import json; open('emoji-escaped.json','w').write(json.dumps({'openapi':'3.1.0','info':{'title':'Reactions \U0001F44D API','version':'1'},'paths':{'/reactions':{'post':{'summary':'Add a \U0001F389 reaction'}}}}, indent=2))"
+
+# D22: D21 with a stray ",]" on the line before the last
+python3 -c "l=open('emoji-escaped.json').read().splitlines(); open('emoji-broken.json','w').write('\n'.join(l[:-1]+['  ,]',l[-1]]))"
 ```
 
 For **D11** (large OpenAPI), generate a spec with a few hundred operations and long descriptions, or trim a large real public spec, so the file is between 850 and 1,000 KB. For **D19**, zip two small, unrelated OpenAPI documents under `v1/` and `v2/`.

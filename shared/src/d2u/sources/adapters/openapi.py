@@ -37,6 +37,13 @@ _YAML_ENTRY_KEY = re.compile(r"^openapi\s*:", re.MULTILINE)
 _JSON_ENTRY_KEY = re.compile(r'"openapi"\s*:')
 # libyaml is much faster on large documents; fall back to the pure-Python loader.
 _Loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+# A JSON escape for a character outside the BMP: a UTF-16 surrogate pair, as
+# json.dumps writes emoji. An escaped backslash (\\) is matched first so that
+# `\\ud83d` stays literal text.
+_JSON_SURROGATE_PAIR = re.compile(
+    r"\\\\|\\u(d[89ab][0-9a-f]{2})\\u(d[c-f][0-9a-f]{2})", re.IGNORECASE
+)
+_JSON_HIGH_SURROGATE = re.compile(r"\\ud[89ab]", re.IGNORECASE)
 
 Keys = tuple[str | int, ...]
 
@@ -296,8 +303,43 @@ def _join_ref_path(base: str, relative: str) -> str | None:
     return "/".join(parts)
 
 
+def _decode_surrogate_pair(match: re.Match[str]) -> str:
+    if match[1] is None:
+        return match[0]
+    high, low = int(match[1], 16), int(match[2], 16)
+    return chr(0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00))
+
+
+def _yaml_readable_text(file: SourceFile) -> str:
+    """The file's text, with JSON surrogate-pair escapes decoded.
+
+    JSON is read as YAML, but PyYAML rejects the surrogate pairs JSON uses
+    for characters such as emoji. Valid JSON has no comments or single-quoted
+    strings, so every pair is an escape inside a string and decoding it is
+    exact. Lines don't move, so error lines still match the file.
+
+    Raises:
+        InputError: The text is meant as JSON but isn't valid; YAML would
+            only report the first escape, not the real problem.
+    """
+    text = file.text
+    if _JSON_HIGH_SURROGATE.search(text) is None:
+        return text
+    try:
+        json.loads(text)
+    except ValueError as exc:
+        if isinstance(exc, json.JSONDecodeError) and text.lstrip().startswith(
+            ("{", "[")
+        ):
+            raise InputError(
+                path=file.path, line=exc.lineno, message=f"Invalid JSON: {exc.msg}."
+            ) from exc
+        return text
+    return _JSON_SURROGATE_PAIR.sub(_decode_surrogate_pair, text)
+
+
 def _parse(file: SourceFile, workspace: _Workspace) -> _Document:
-    loader = _Loader(file.text)
+    loader = _Loader(_yaml_readable_text(file))
     try:
         root = loader.get_single_node()
         if root is None:

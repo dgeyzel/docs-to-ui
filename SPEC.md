@@ -1,6 +1,6 @@
 # Docs-to-UI: Architecture & Implementation Spec (v7)
 
-> **Status:** Implemented on branch `redesign/v7` (milestones R1–R6, §18). **[Decided]** marks settled decisions; **[Default]** marks proposed defaults that stand unless changed. §19 records the questions resolved in review.
+> **Status:** Implemented on branch `redesign/v7` (milestones R1–R7, §18). **[Decided]** marks settled decisions; **[Default]** marks proposed defaults that stand unless changed. §19 records the questions resolved in review.
 >
 > v7 replaces v6's single app, where DSPy ran inside the web app. The web app now calls the LLM directly, and a second app does evaluation and tuning with DSPy. What changed from v6 is summarized in §21.
 
@@ -12,7 +12,7 @@
 
 | App | Role | Uses DSPy? |
 |---|---|---|
-| **Docs app** (`docs_app/`) | Accepts an OpenAPI document or Python source (a file, pasted text or a `.zip`), sends it to an LLM in one direct call, and renders the resulting documentation page. The page can be viewed in the app or exported as standalone HTML. | No |
+| **Docs app** (`docs_app/`) | Accepts an OpenAPI document or Python source (a file, pasted text or a `.zip`), sends it to an LLM in one direct call, and renders the resulting documentation page. The page can be viewed in the app or exported as standalone HTML, and everything the page offers is also available through a local JSON API (§12.1). | No |
 | **Tuning app** (`tuning_app/`) | Evaluates and tunes the Docs app. Manages models, gold-set datasets, eval runs and DSPy optimization runs through a web UI, and promotes tuned prompts and models to the Docs app. | Yes |
 
 Both apps share:
@@ -49,6 +49,7 @@ This shared code lives in one library, `d2u`, so the Tuning app evaluates exactl
 - Keep deterministic parsing as a comparison baseline and a possible future generation strategy.
 - Trace every generation and eval end to end, viewable in the app or in Langfuse. The user picks which.
 - Capture user feedback as data for gold-set curation.
+- Let scripts generate pages and fetch their `DocPage` JSON through a local JSON API, without a browser.
 
 **Non-goals**
 - Multi-user support, authentication or sharing. Both apps bind to `127.0.0.1` only (the production container exception is in `AGENTS.md` §0).
@@ -79,6 +80,7 @@ This shared code lives in one library, `d2u`, so the Tuning app evaluates exactl
 | D15 | Tests never call a real LLM. Real-model evals run only when the user starts them. | **[Default]** |
 | D16 | The eval **judge model** is chosen per run and should differ from the generation model. The seeded default judge is a Claude model, a different provider from the seeded Gemini generation model. The UI warns when judge and generation model are the same. | **[Decided]** |
 | D17 | API keys are **never stored in the database**. A registered model names the environment variable that holds its key. | **[Default]** |
+| D18 | The Docs app has a **local JSON API** under `/api/v1/` (§12.1). It is asynchronous like the UI (D2): a submission returns at once and is polled, with an optional bounded wait. It has no authentication, like the rest of the app, and never changes runtime settings. | **[Default]** |
 
 ## 4. End-to-End Flow
 
@@ -393,6 +395,7 @@ Unchanged from v6, except for the lower size cap:
 - Absolute paths, `..`, drive letters and symlinks reject the archive.
 - Nested archives, binary files and non-UTF-8 files are skipped with a reason.
 - A single top-level folder is stripped, and the manifest is shown.
+- OpenAPI JSON is read with the YAML loader. Valid JSON that writes characters outside the BMP (such as emoji) as `\uXXXX` surrogate-pair escapes, as `json.dumps` does by default, has those pairs decoded first, since PyYAML rejects them; JSON with such escapes that isn't valid is reported with the JSON parser's line and message.
 - For the `llm` strategy, the adapter's `includes()` and default excludes still decide which files are sent to the LLM. This keeps tests, virtualenvs and build output out of the prompt.
 
 ## 11. Observability
@@ -434,6 +437,27 @@ Unchanged from v6, except for where things live:
 - The generated `tokens.css`, `components.css`, `docpage.js` and all shared elements (`doc.*`, `traces.*`, the app-shell components) move into the shared Plain package `d2u.ui`.
 - Each app keeps only its own page templates and app-specific elements.
 - `scripts/sync_design.py` now writes to `shared/src/d2u/ui/assets/css/tokens.css`.
+
+### 12.1 JSON API (Docs app)
+
+The local package `app.api` serves a JSON API under `/api/v1/`, for scripts that generate pages without a browser. It reuses the UI's code: submissions are validated by the same `SourceForm` (so limits and errors are identical), generations are created and queued by the same pipeline functions, and pages come from the same stored `DocPage`.
+
+| Method | Path | Result |
+|---|---|---|
+| POST | `generations` | Start a generation. `multipart/form-data` with `file` or `text`, plus optional `language`, `entry` and `strategy` (the web form's fields), or `application/json` with `text`, `language` and `strategy`. Answers `202` with the generation and a `Location` header. |
+| GET | `generations` | Newest first. `status` filters, `limit` defaults to 20 (at most 100). |
+| GET | `generations/<id>` | The generation: status, stage, input metadata, model, prompt label, usage, timings, error, manifest and links. |
+| GET | `generations/<id>/page` | The `DocPage` JSON. `409 not_ready` while pending or running, `422 generation_failed` if it failed; both carry the generation. |
+| GET | `generations/<id>/page.html` | The standalone HTML export (§12). |
+| POST | `generations/<id>/regenerate` | Start a new generation from the same input. `202`. |
+| POST | `generations/<id>/feedback` | JSON `{operation_id?, score: 1 or -1, comment?}`, recorded and mirrored exactly like the page's 👍 / 👎. `201`. |
+| GET | `openapi.json` | An OpenAPI 3.1 description of this API, built from the response models. |
+
+- **Waiting.** The two GETs on one generation accept `wait=<seconds>`: the request blocks until the generation finishes or the wait runs out, whichever is first, capped by `PLAIN_API_MAX_WAIT_S`. Without it they answer at once.
+- **Errors** share one envelope, `{"error": {"code", "message", "fields"?, "generation"?}}`, for validation (`400 invalid_input`), unknown ids (`404 not_found`), oversized bodies (`413`) and the two page states above.
+- **Contracts.** The response models live in `d2u.schemas.api`. The `DocPage` JSON is the same as the JSON export (D9), so a `DocPage` change is an API change; the path carries a version.
+- **Security.** No authentication (§2). Cross-site browser requests are refused by Plain's CSRF check, which `/api/` is not exempt from; scripts and `curl` send no browser headers and pass. No CORS headers are sent.
+- **Client.** `scripts/d2u_client.py` (standard library only) uploads a file or zip, waits, and writes the `DocPage` JSON and optionally the HTML export.
 
 ## 13. Persistence
 
@@ -486,7 +510,8 @@ docs-to-ui/
 │   ├── pyproject.toml              # depends on d2u; no DSPy
 │   └── app/
 │       ├── settings.py, urls.py
-│       └── generate/               # form, views, GenerateDocJob, export
+│       ├── generate/               # form, views, GenerateDocJob, export
+│       └── api/                    # JSON API (§12.1), OpenAPI description
 ├── tuning_app/                     # Plain project "tuning" (workspace member)
 │   ├── pyproject.toml              # depends on d2u, dspy and its OpenInference instrumentation
 │   └── app/
@@ -499,7 +524,7 @@ docs-to-ui/
 │       ├── evals/                  # eval runs, metrics, comparison
 │       └── optimization/           # DSPy wrapper, optimizers, runs
 ├── design/docs-to-ui/              # OpenDesign package (never edited by agents)
-├── scripts/sync_design.py
+├── scripts/sync_design.py, d2u_client.py
 ├── tests/                          # shared/, docs_app/, tuning_app/, e2e/, fixtures/
 ├── Dockerfile                      # base, test, docs, tuning stages
 ├── docker-compose.yml              # postgres
@@ -523,6 +548,7 @@ Environment variables (secrets and per-process settings). Runtime choices live i
 | `PLAIN_GENERATIONS_MAX_CONCURRENCY` | `4` | Parallel calls when an input is split |
 | `PLAIN_GENERATIONS_ENABLE_HYBRID` | `false` | Offer the `hybrid` strategy in the Docs app |
 | `PLAIN_GENERATIONS_FAKE_RESPONSES` | `""` | Fixture file for the fake model (tests only) |
+| `PLAIN_API_MAX_WAIT_S` | `60` | Longest a JSON API request may wait for a generation to finish (§12.1) |
 | `PLAIN_SOURCES_ENABLED_ADAPTERS` | `["openapi","python"]` | Enabled languages |
 | `PLAIN_SOURCES_ZIP_MAX_UNCOMPRESSED_BYTES` | `52428800` | Zip total uncompressed limit |
 | `PLAIN_SOURCES_ZIP_MAX_FILE_BYTES` | `5242880` | Zip per-file limit |
@@ -546,8 +572,8 @@ Removed from v6:
 |---|---|---|---|
 | Unit (`shared`) | Schemas, ID derivation, `GeneratedPage` → `DocPage`, splitting and merging, prompt rendering, zip safety, adapters and contract suite, routing processor | Fake | Every push |
 | Unit (`tuning_app`) | Metrics (faithfulness, component accuracy and the rest), gold-set validation, DSPy wrapper export to `PromptVersion` | Fake / DummyLM | Every push |
-| Integration | Docs app job through every state; model registry and activation; prompt promotion and rollback; runtime backend switching; eval run and optimization run jobs; telemetry wiring (one trace ID) | Fake | Every push |
-| E2E | Docs app: generate, poll, page, export, feedback. Tuning app: add a model, curate a gold example, run an eval, compare runs, optimize, promote, then see the Docs app use it. Switch trace backends in the UI. | Fake, both workers running | Every push |
+| Integration | Docs app job through every state; the JSON API; model registry and activation; prompt promotion and rollback; runtime backend switching; eval run and optimization run jobs; telemetry wiring (one trace ID) | Fake | Every push |
+| E2E | Docs app: generate, poll, page, export, feedback; the API client against a live server and worker. Tuning app: add a model, curate a gold example, run an eval, compare runs, optimize, promote, then see the Docs app use it. Switch trace backends in the UI. | Fake, both workers running | Every push |
 | Dependency guard | No shared or Docs app module imports `dspy`, and booting the Docs app loads none of it; the production image build fails if `dspy` is importable | — | Every push |
 | Design sync | `tokens.css` copy matches `design/` | — | Every push |
 | Real-model evals | Eval and optimization runs against real models | Real | Manual (Tuning app UI) |
@@ -564,6 +590,7 @@ v6 (milestones M1–M5, the single-app version) is complete. All v7 milestones a
 | **R4** | Tuning app: model management, gold sets (create, seed, import, edit, approve, split), eval runs with every §9.5 metric, results and comparison UI. | Measurable quality | Done |
 | **R5** | Tuning app: optimization runs with configurable DSPy optimizers, candidate export, promotion and rollback to the Docs app, feedback-to-gold import. | Tuning loop | Done |
 | **R6** | Containers for both apps and workers, CI, README and docs, UAT plan update. | Ship | Done |
+| **R7** | The Docs app's JSON API (§12.1): submit, poll or wait, `DocPage` JSON and HTML, list, regenerate, feedback, an OpenAPI description, and `scripts/d2u_client.py`. | Automation | Done |
 
 ### Implementation notes
 
@@ -576,6 +603,9 @@ Known gaps and deliberate differences between the code and this spec, and decisi
 - **`PLAIN_TUNING_MAX_EVAL_CONCURRENCY` keeps its §16 name**, although it's defined by the `app.evals` package, whose other settings would be prefixed `EVALS_`.
 - **The faithfulness formula** (0.5 × deterministic + 0.5 × judge) and the default component weights inside component accuracy were chosen in review and are recorded in §9.5.
 - **Gold examples store the model seed's state.** Seeding from a model runs as `SeedGoldExampleJob` (§14), and the example records whether it is pending, running or failed (§13).
+- **Optional form fields may be omitted.** Plain requires every declared field in form data, so `SourceForm` defaults `text` and `language` (as it already did `entry` and `strategy`) for API callers that send only a file. The web form always sends them.
+- **Plain refuses a cross-site POST with `400`** (a suspicious-operation error), not `403`; the API's tests check for that.
+- **Escaped emoji in JSON** (§10) was a bug found while building R7: the API's own `openapi.json`, written with `json.dumps`, failed the Docs app's OpenAPI reader. It is fixed in the adapter, with regression tests.
 - **Connection test results are stored** in a Tuning-only `ModelTest` table (§13), so the model page can show the latest result after its job finishes.
 - **An extra telemetry setting.** `PLAIN_TELEMETRY_EXPORT_ENABLED` (§11.2, §16) lets the test suites and the image build turn tracing off now that `PLAIN_TELEMETRY_BACKENDS` is gone.
 - **Langfuse credentials are per process.** Each app reads the `LANGFUSE_*` variables from its own environment, so the Settings page can only check the Tuning app's. An app without them skips Langfuse even when it's selected, and says so on its pages.
@@ -602,6 +632,7 @@ Unchanged from v6: the repository and all tooling run in WSL on the Linux filesy
 ## 21. Changelog
 
 **v7**
+- Added a local JSON API to the Docs app (§12.1, D18) and a standard-library client script.
 - Split into two Plain apps sharing one database: the Docs app (direct LLM generation, no DSPy) and the Tuning app (evals and DSPy optimization, with a web UI).
 - The default strategy is now `llm`: the LLM produces the full page as Pydantic types through structured output. The parsers are kept for the `hybrid` and `parser` strategies.
 - IDs are derived in code from LLM output.
